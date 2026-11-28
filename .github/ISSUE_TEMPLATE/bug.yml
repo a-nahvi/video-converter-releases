@@ -1,0 +1,49 @@
+name: Bug report / گزارش مشکل
+description: Report a problem with installation, conversion, playback or updates.
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: You can write in Persian or English. Keep private file names, paths and videos out of the report.
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: Find the installed version under Updates (به‌روزرسانی).
+      placeholder: "1.6.0"
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: Windows 11 25H2 x64
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where did it happen?
+      options:
+        - Installation
+        - Conversion or output ZIP
+        - Playback or history
+        - Updates
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: If this happens during conversion, include the input format and relevant output settings.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Actual and expected behavior
+      description: Include the app's error message if one appeared.
+    validations:
+      required: true
