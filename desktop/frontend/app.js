@@ -3,27 +3,10 @@
 const ui = Object.fromEntries(Array.from(document.querySelectorAll("[id]"), (node) => [node.id, node]));
 const native = window.__TAURI__;
 const files = new Map();
-const number = new Intl.NumberFormat("fa-IR");
-const decimal = new Intl.NumberFormat("fa-IR", { maximumFractionDigits: 1 });
-const historyDay = new Intl.DateTimeFormat("fa-IR", { dateStyle: "full" });
-const historyTime = new Intl.DateTimeFormat("fa-IR", { hour: "2-digit", minute: "2-digit" });
+const { t } = i18n;
 const selectControls = enhanceSelects(document.querySelectorAll("[data-custom-select]"));
 const views = ["conversion", "history", "settings", "updates"];
-const statusLabels = {
-  ready: "در انتظار",
-  queued: "در صف",
-  running: "در حال تبدیل",
-  done: "تبدیل شد",
-  error: "خطا",
-  cancelled: "متوقف شد",
-};
-const formatHelp = {
-  hls: "یک ZIP شامل فهرست پخش و قطعه‌های HLS",
-  mp4: "فایل MP4 با ویدیوی H.264 و صدای AAC، داخل ZIP",
-  webm: "فایل WebM با ویدیوی VP9 و صدای Opus، داخل ZIP",
-};
 const formatNames = { hls: "HLS", mp4: "MP4", webm: "WebM" };
-const qualityNames = { high: "کیفیت بالا", balanced: "کیفیت متعادل", compact: "کم‌حجم" };
 
 let preferences;
 let loaded = false;
@@ -94,10 +77,10 @@ function dismissAlert() {
 }
 
 function sizeUnit(bytes) {
-  if (bytes >= 1024 ** 3) return [1024 ** 3, "گیگابایت"];
-  if (bytes >= 1024 ** 2) return [1024 ** 2, "مگابایت"];
-  if (bytes >= 1024) return [1024, "کیلوبایت"];
-  return [1, "بایت"];
+  if (bytes >= 1024 ** 3) return [1024 ** 3, t("gb")];
+  if (bytes >= 1024 ** 2) return [1024 ** 2, t("mb")];
+  if (bytes >= 1024) return [1024, t("kb")];
+  return [1, t("bytes")];
 }
 
 function displayDuration(duration) {
@@ -114,20 +97,19 @@ function updateSizeEstimate(item) {
   const amount = band.querySelector(".size-number");
   const unitLabel = band.querySelector(".size-unit");
   if (!item.estimate) {
-    amount.textContent = previewPending ? "در حال برآورد" : "نامشخص";
-    amount.dir = "rtl";
+    amount.textContent = t(previewPending ? "estimating" : "unknown");
     unitLabel.textContent = "";
     band.removeAttribute("title");
     return;
   }
   const { minimumBytes, maximumBytes } = item.estimate;
   const [divisor, unit] = sizeUnit(maximumBytes);
+  const decimal = i18n.formats.decimal;
   const lower = decimal.format(minimumBytes / divisor);
   const upper = decimal.format(maximumBytes / divisor);
-  amount.dir = "rtl";
-  amount.textContent = lower === upper ? lower : `${lower} تا ${upper}`;
+  amount.textContent = lower === upper ? lower : t("sizeRange", { lower, upper });
   unitLabel.textContent = unit;
-  band.title = `حدود ${amount.textContent} ${unit}`;
+  band.title = t("approximateSize", { size: amount.textContent, unit });
 }
 
 function updateRow(item) {
@@ -137,12 +119,18 @@ function updateRow(item) {
   const status = row.querySelector(".queue-status");
   const progress = row.querySelector(".queue-progress");
   const error = row.querySelector(".queue-error");
+  const { integer, decimal, percent } = i18n.formats;
   row.dataset.status = item.status;
   output.textContent = outputPath ? displayName(outputPath)
-    : previewPending ? "در حال محاسبه…" : "نام خروجی در دسترس نیست";
+    : t(previewPending ? "calculating" : "noOutputName");
   output.title = outputPath || "";
   status.textContent = item.status === "running"
-    ? `${statusLabels.running} ${number.format(item.progress)}٪` : statusLabels[item.status];
+    ? t("runningProgress", { percent: percent.format(item.progress / 100) }) : t(`status_${item.status}`);
+  const meta = row.querySelector(".file-meta");
+  meta.title = t("inputResolution", { width: integer.format(item.width), height: integer.format(item.height) });
+  const [sizeScale, unit] = sizeUnit(item.bytes);
+  meta.querySelector(".meta-size").textContent = `${decimal.format(item.bytes / sizeScale)} ${unit}`;
+  progress.setAttribute("aria-label", t("itemProgress", { name: item.name }));
   row.querySelector(".play-output").hidden = !item.output || !window.playConvertedOutput;
   row.querySelector(".show-file").hidden = !item.output;
   row.querySelector(".remove-file").disabled = active !== null;
@@ -162,13 +150,9 @@ function addRow(item) {
   filename.textContent = item.name;
   filename.title = item.path;
   const meta = row.querySelector(".file-meta");
-  meta.title = `وضوح ورودی ${item.width} در ${item.height} پیکسل`;
   const duration = displayDuration(item.duration);
   meta.querySelector(".meta-duration").hidden = !duration;
   meta.querySelector(".meta-duration bdi").textContent = duration;
-  const [sizeScale, unit] = sizeUnit(item.bytes);
-  meta.querySelector(".meta-size").textContent = `${decimal.format(item.bytes / sizeScale)} ${unit}`;
-  row.querySelector(".queue-progress").setAttribute("aria-label", `پیشرفت تبدیل ${item.name}`);
   row.querySelector(".remove-file").addEventListener("click", () => {
     files.delete(item.path);
     row.remove();
@@ -183,6 +167,7 @@ function addRow(item) {
 }
 
 function updateChrome() {
+  const { integer, percent: percentFormat } = i18n.formats;
   const canAdd = loaded && active === null && !inspecting && !choosing && !installingUpdate;
   const waiting = currentSelection();
   const completed = Array.from(files.values()).filter((item) => item.output);
@@ -195,50 +180,52 @@ function updateChrome() {
   ui["action-bar"].hidden = currentView !== "conversion" && active === null;
   ui["clear-files"].disabled = files.size === 0 || active !== null || inspecting || installingUpdate;
   ui["start-batch"].disabled = !canAdd || waiting.length === 0 || previewPending;
-  const startLabel = retryOnly ? "تلاش دوباره" : "شروع تبدیل";
+  const startLabel = t(retryOnly ? "retry" : "startConversion");
   ui["start-batch"].setAttribute("aria-label", startLabel);
   ui["start-batch"].title = startLabel;
   ui["start-batch"].firstElementChild.className = `icon icon-${retryOnly ? "refresh" : "play"}`;
   ui["open-output"].hidden = completed.length === 0;
   ui["cancel-batch"].hidden = active === null;
   ui["cancel-batch"].disabled = Boolean(active?.cancelling);
-  const stopLabel = active?.cancelling ? "در حال توقف…" : "توقف تبدیل";
+  const stopLabel = t(active?.cancelling ? "stopping" : "stopConversion");
   ui["cancel-batch"].setAttribute("aria-label", stopLabel);
   ui["cancel-batch"].title = stopLabel;
-  ui["file-count"].textContent = number.format(files.size);
+  ui["file-count"].textContent = integer.format(files.size);
   ui["empty-queue"].hidden = files.size > 0;
   ui["queue-scroll"].hidden = files.size === 0;
   ui["batch-indicator"].classList.toggle("is-busy", active !== null || inspecting);
 
-  let title = "آماده برای افزودن ویدیو";
-  let caption = "برای شروع، یک ویدیو به صف اضافه کنید.";
+  let title = t("readyForVideos");
+  let caption = t("startHint");
   ui["batch-progress"].hidden = active === null;
   if (active) {
     const percent = Math.floor(active.items.reduce((sum, item) => sum + item.progress, 0) / active.items.length);
     const done = active.items.filter((item) => item.status === "done").length;
     ui["batch-progress"].value = percent;
-    title = active.cancelling ? "در حال توقف صف" : `در حال تبدیل، ${number.format(percent)}٪`;
-    caption = `${number.format(done)} از ${number.format(active.items.length)} فایل تبدیل شد.`;
+    title = active.cancelling ? t("stoppingQueue") : t("runningProgress", { percent: percentFormat.format(percent / 100) });
+    caption = t("batchCount", { done: integer.format(done), total: integer.format(active.items.length) });
   } else if (inspecting) {
-    title = "در حال بررسی فایل‌ها";
-    caption = "مشخصات ویدیوها در حال خواندن است.";
+    title = t("inspectingFiles");
+    caption = t("inspectingHint");
   } else if (lastBatch) {
     const { done, errors, cancelled } = lastBatch;
-    title = cancelled > 0 ? "صف متوقف شد" : "تبدیل به پایان رسید";
-    const parts = [`${number.format(done)} خروجی آماده`];
-    if (errors > 0) parts.push(`${number.format(errors)} خطا`);
-    if (cancelled > 0) parts.push(`${number.format(cancelled)} متوقف`);
-    caption = parts.join("، ");
+    title = t(cancelled > 0 ? "queueStopped" : "batchFinished");
+    const parts = [t("outputsReady", { count: integer.format(done) })];
+    if (errors > 0) parts.push(t("errorsCount", { count: integer.format(errors) }));
+    if (cancelled > 0) parts.push(t("stoppedCount", { count: integer.format(cancelled) }));
+    caption = parts.join(t("listSeparator"));
   } else if (waiting.length > 0) {
-    title = `${number.format(waiting.length)} ویدیو آمادهٔ تبدیل`;
-    caption = "تنظیمات و نام خروجی‌ها را بررسی کنید.";
+    title = t(waiting.length === 1 ? "videoReady" : "videosReady", { count: integer.format(waiting.length) });
+    caption = t("reviewOutputs");
   }
   ui["status-title"].textContent = title;
   ui["status-caption"].textContent = caption;
 }
 
 function renderPreferences() {
-  const { settings, finglish, outputDirectory } = preferences;
+  const { settings, finglish, outputDirectory, language } = preferences;
+  i18n.setLanguage(language);
+  ui.language.value = language === "en" ? "en" : "fa";
   ui.format.value = settings.format;
   ui.quality.value = settings.quality;
   ui.resolution.value = settings.maxWidth ? `width-${settings.maxWidth}` : settings.maxHeight ?? "";
@@ -247,23 +234,17 @@ function renderPreferences() {
   ui["segment-plus"].disabled = settings.segmentSeconds >= 30;
   ui.encrypt.checked = settings.encrypt;
   ui.finglish.checked = finglish;
-  ui["format-help"].textContent = formatHelp[settings.format];
+  ui["format-help"].textContent = t(`format_${settings.format}`);
   ui["hls-settings"].hidden = settings.format !== "hls";
   selectControls.sync();
 
   const destination = ui["destination-path"];
-  destination.textContent = outputDirectory || "کنار فایل‌های ورودی";
+  destination.textContent = outputDirectory || t("besideInputs");
   destination.title = outputDirectory || "";
   ui["reset-destination"].hidden = !outputDirectory;
   const help = ui["destination-help"];
-  help.replaceChildren();
-  if (outputDirectory) {
-    help.textContent = "همهٔ خروجی‌ها در این پوشه ذخیره می‌شوند.";
-  } else {
-    const name = document.createElement("bdi");
-    name.textContent = settings.format === "hls" ? "output_hls" : "output_video";
-    help.append("در پوشهٔ ", name, " کنار هر ویدیو");
-  }
+  const folder = settings.format === "hls" ? "output_hls" : "output_video";
+  help.textContent = outputDirectory ? t("customDestination") : t("defaultDestination", { folder });
 }
 
 function changePreferences(change, affectsOutput = false) {
@@ -271,7 +252,7 @@ function changePreferences(change, affectsOutput = false) {
   renderPreferences();
   const snapshot = structuredClone(preferences);
   saveSequence = saveSequence.then(() => invoke("save_preferences", { preferences: snapshot })).catch((error) => {
-    showError("ذخیرهٔ تنظیمات انجام نشد.", error);
+    showError(t("savePreferencesError"), error);
   });
   if (affectsOutput) schedulePreview();
 }
@@ -298,7 +279,7 @@ function schedulePreview() {
         updateRow(item);
       }
     } catch (error) {
-      if (revision === previewRevision) showError("پیش‌نمایش نام خروجی آماده نشد.", error);
+      if (revision === previewRevision) showError(t("previewError"), error);
     } finally {
       if (revision === previewRevision) {
         previewPending = false;
@@ -325,6 +306,7 @@ async function addFiles(paths) {
   dismissAlert();
   updateChrome();
   try {
+    await saveSequence;
     const { items, errors } = await invoke("inspect_files", { paths: unique });
     if (items.length) lastBatch = null;
     for (const metadata of items) {
@@ -335,10 +317,10 @@ async function addFiles(paths) {
     }
     if (errors.length) {
       const reasons = errors.map(({ path, error }) => `\u2068${basename(path)}\u2069 − ${error}`);
-      showAlert(`برخی فایل‌ها به صف اضافه نشدند.\n${reasons.join("\n")}`);
+      showAlert(`${t("someFilesError")}\n${reasons.join("\n")}`);
     }
   } catch (error) {
-    showError("بررسی فایل‌ها انجام نشد.", error);
+    showError(t("inspectError"), error);
   } finally {
     inspecting = false;
     updateChrome();
@@ -351,9 +333,10 @@ async function chooseFiles() {
   choosing = true;
   updateChrome();
   try {
+    await saveSequence;
     await addFiles(await invoke("choose_files"));
   } catch (error) {
-    showError("پنجرهٔ انتخاب فایل باز نشد.", error);
+    showError(t("fileDialogError"), error);
   } finally {
     choosing = false;
     updateChrome();
@@ -365,10 +348,11 @@ async function chooseDestination() {
   choosing = true;
   updateChrome();
   try {
+    await saveSequence;
     const outputDirectory = await invoke("choose_output_directory");
     if (outputDirectory) changePreferences((value) => { value.outputDirectory = outputDirectory; }, true);
   } catch (error) {
-    showError("پنجرهٔ انتخاب پوشه باز نشد.", error);
+    showError(t("folderDialogError"), error);
   } finally {
     choosing = false;
     updateChrome();
@@ -402,7 +386,7 @@ async function reveal(path, command) {
   try {
     await invoke(command, { path });
   } catch (error) {
-    showError("پوشه در فایل اکسپلورر باز نشد.", error);
+    showError(t("explorerError"), error);
   }
 }
 
@@ -410,18 +394,19 @@ async function playOutput(path) {
   try {
     await window.playConvertedOutput(path);
   } catch (error) {
-    showError("خروجی پخش نشد.", error);
+    showError(t("playOutputError"), error);
   }
 }
 
 function renderHistory(entries) {
+  const { day: dayFormat, time: timeFormat, integer } = i18n.formats;
   const groups = document.createDocumentFragment();
   let currentDay;
   let list;
   for (const item of entries) {
     const time = new Date(item.finishedAt);
     const validTime = Number.isFinite(time.getTime());
-    const day = validTime ? historyDay.format(time) : "زمان ثبت نامشخص";
+    const day = validTime ? dayFormat.format(time) : t("unknownHistoryTime");
     if (day !== currentDay) {
       currentDay = day;
       const group = document.createElement("section");
@@ -454,13 +439,13 @@ function renderHistory(entries) {
     const format = document.createElement("bdi");
     format.textContent = formatNames[item.settings.format];
     const quality = document.createElement("span");
-    quality.textContent = qualityNames[item.settings.quality];
+    quality.textContent = t(`quality_${item.settings.quality}`);
     meta.append(format, quality);
-    row.querySelector(".queue-status").textContent = statusLabels[item.status] || "نامشخص";
+    row.querySelector(".queue-status").textContent = t(`status_${item.status}`);
     if (validTime) {
       const stamp = row.querySelector("time");
       stamp.dateTime = time.toISOString();
-      stamp.textContent = historyTime.format(time);
+      stamp.textContent = timeFormat.format(time);
     }
     if (item.error) {
       const error = row.querySelector(".history-error");
@@ -470,12 +455,12 @@ function renderHistory(entries) {
     list.append(row);
   }
   ui["history-list"].replaceChildren(groups);
-  ui["history-count"].textContent = `${number.format(entries.length)} نتیجهٔ ثبت‌شده`;
+  ui["history-count"].textContent = t("historyCount", { count: integer.format(entries.length) });
   ui["history-count"].hidden = entries.length === 0;
   ui["history-clear"].hidden = entries.length === 0;
   ui["history-empty"].hidden = entries.length > 0;
-  ui["history-state-title"].textContent = "هنوز تبدیلی ثبت نشده است";
-  ui["history-state-detail"].textContent = "پس از تبدیل اولین ویدیو، نتیجه در اینجا نمایش داده می‌شود.";
+  ui["history-state-title"].textContent = t("emptyHistory");
+  ui["history-state-detail"].textContent = t("emptyHistoryHelp");
   ui["history-convert"].hidden = false;
 }
 
@@ -491,18 +476,18 @@ async function refreshHistory() {
     if (!list.childElementCount) {
       ui["history-clear"].hidden = true;
       ui["history-empty"].hidden = false;
-      ui["history-state-title"].textContent = "تاریخچه بارگذاری نشد";
-      ui["history-state-detail"].textContent = "برای بازخوانی، دوباره تاریخچه را باز کنید.";
+      ui["history-state-title"].textContent = t("historyLoadFailed");
+      ui["history-state-detail"].textContent = t("historyTryAgain");
       ui["history-convert"].hidden = true;
     }
-    showError("خواندن تاریخچه انجام نشد.", error);
+    showError(t("readHistoryError"), error);
   } finally {
     if (request === historyRequest) list.setAttribute("aria-busy", "false");
   }
 }
 
 function historyChanged({ payload }) {
-  if (payload) showError("ذخیرهٔ نتیجه در تاریخچه انجام نشد.", payload);
+  if (payload) showError(t("writeHistoryError"), payload);
   if (currentView !== "history") return;
   clearTimeout(historyTimer);
   historyTimer = setTimeout(refreshHistory, 120);
@@ -512,7 +497,7 @@ function confirmHistoryDelete(id) {
   if (deletingHistory || installingUpdate) return;
   const dialog = ui["history-delete-dialog"];
   historyDeleteTarget = id;
-  ui["history-delete-title"].textContent = id === null ? "کل تاریخچه پاک شود؟" : "این تبدیل از تاریخچه حذف شود؟";
+  ui["history-delete-title"].textContent = t(id === null ? "confirmClearHistory" : "confirmRemoveHistory");
   dialog.returnValue = "cancel";
   dialog.showModal();
 }
@@ -523,7 +508,7 @@ async function deleteHistory(id) {
   try {
     await invoke("delete_history", { id });
   } catch (error) {
-    showError("حذف تاریخچه انجام نشد.", error);
+    showError(t("deleteHistoryError"), error);
   } finally {
     deletingHistory = false;
     ui["history-clear"].disabled = false;
@@ -546,7 +531,7 @@ function showView(view) {
 }
 
 function setSidebarCollapsed(collapsed) {
-  const label = collapsed ? "باز کردن منو" : "جمع کردن منو";
+  const label = t(collapsed ? "expandSidebar" : "collapseSidebar");
   ui["app-sidebar"].classList.toggle("is-collapsed", collapsed);
   ui["sidebar-toggle"].setAttribute("aria-expanded", String(!collapsed));
   ui["sidebar-toggle"].setAttribute("aria-label", label);
@@ -577,7 +562,7 @@ async function startBatch() {
     for (const [index, item] of items.entries()) Object.assign(item, previous[index]);
     for (const item of files.values()) updateRow(item);
     updateChrome();
-    showError("تبدیل شروع نشد.", error);
+    showError(t("startError"), error);
     if (items.some((item) => !item.preview)) schedulePreview();
   }
 }
@@ -593,7 +578,7 @@ async function cancelBatch() {
     if (active === batch) {
       batch.cancelling = false;
       updateChrome();
-      showError("توقف تبدیل انجام نشد.", error);
+      showError(t("stopError"), error);
     }
   }
 }
@@ -614,7 +599,7 @@ function batchFinished() {
   for (const item of active.items) {
     if (item.status === "queued" || item.status === "running") {
       item.status = active.cancelling ? "cancelled" : "error";
-      item.error = active.cancelling ? null : "وضعیت نهایی این فایل از موتور تبدیل دریافت نشد.";
+      item.error = active.cancelling ? null : t("missingFinalStatus");
     }
   }
   lastBatch = {
@@ -642,6 +627,13 @@ function attachControls() {
     const collapsed = !ui["app-sidebar"].classList.contains("is-collapsed");
     setSidebarCollapsed(collapsed);
     localStorage.setItem("sidebar-collapsed", String(collapsed));
+  });
+  ui.language.addEventListener("change", () => changePreferences((value) => { value.language = ui.language.value; }));
+  document.addEventListener("language-changed", () => {
+    setSidebarCollapsed(ui["app-sidebar"].classList.contains("is-collapsed"));
+    for (const item of files.values()) updateRow(item);
+    dismissAlert();
+    updateChrome();
   });
   ui["history-clear"].addEventListener("click", () => confirmHistoryDelete(null));
   ui["history-delete-dialog"].addEventListener("close", ({ target }) => {
@@ -730,7 +722,7 @@ async function initialize() {
       onInstalling: (value) => { installingUpdate = value; updateChrome(); },
     });
   } catch (error) {
-    showError("ارتباط با موتور تبدیل برقرار نشد. برنامه را دوباره باز کنید.", error);
+    showError(t("engineConnectionError"), error);
   }
 }
 

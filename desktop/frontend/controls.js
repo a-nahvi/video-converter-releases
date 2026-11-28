@@ -61,11 +61,9 @@ function enhanceSelects(selects) {
       const text = document.createElement("span");
       text.className = "select-option-text";
       const title = document.createElement("bdi");
-      title.textContent = option.text;
       text.append(title);
       if (option.dataset.note) {
         const note = document.createElement("small");
-        note.textContent = option.dataset.note;
         text.append(note);
       }
       const tick = icon("check");
@@ -89,8 +87,20 @@ function enhanceSelects(selects) {
     controls.set(select, control);
 
     function sync() {
-      value.textContent = options[select.selectedIndex]?.text ?? "";
-      rows.forEach((row, index) => row.setAttribute("aria-selected", String(index === select.selectedIndex)));
+      syncLabel(value, options[select.selectedIndex]);
+      rows.forEach((row, index) => {
+        const option = options[index];
+        syncLabel(row.querySelector("bdi"), option);
+        const note = row.querySelector("small");
+        if (note) note.textContent = option.dataset.note;
+        row.setAttribute("aria-selected", String(index === select.selectedIndex));
+      });
+    }
+
+    function syncLabel(element, option) {
+      element.textContent = option?.text ?? "";
+      element.lang = option?.lang || document.documentElement.lang;
+      element.dir = option?.dir || "auto";
     }
 
     function activate(index, scroll = false) {

@@ -15,7 +15,7 @@
       refreshFrame = 0;
       try {
         const maximized = await appWindow.isMaximized();
-        const label = maximized ? "بازگرداندن اندازهٔ پنجره" : "بزرگ کردن پنجره";
+        const label = i18n.t(maximized ? "restoreWindow" : "maximizeWindow");
         maximize.dataset.maximized = String(maximized);
         maximize.title = label;
         maximize.setAttribute("aria-label", label);
@@ -28,6 +28,7 @@
   minimize.addEventListener("click", () => appWindow.minimize().catch(console.error));
   maximize.addEventListener("click", () => appWindow.toggleMaximize().then(refreshMaximizeButton).catch(console.error));
   close.addEventListener("click", () => appWindow.close().catch(console.error));
+  document.addEventListener("language-changed", refreshMaximizeButton);
   void appWindow.onResized(refreshMaximizeButton).catch(console.error);
   refreshMaximizeButton();
 })();

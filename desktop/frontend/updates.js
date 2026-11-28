@@ -8,30 +8,19 @@ async function initializeUpdates({ invoke, listen, canInstall, finishSaving, onI
   const progress = document.getElementById("update-progress");
   const error = document.getElementById("update-error");
   const repository = document.getElementById("update-repository");
-  const locale = new Intl.NumberFormat("fa-IR", { maximumFractionDigits: 1 });
   let status = { phase: "idle" };
   let installTimer;
   let requestingInstall = false;
 
   function render() {
-    const versionLabel = status.availableVersion || "";
-    const captions = {
-      idle: "برنامه نسخه‌های جدید را به‌صورت خودکار بررسی می‌کند.",
-      checking: "در حال بررسی انتشارهای GitHub…",
-      current: "آخرین نسخه روی دستگاه نصب است.",
-      downloading: `نسخهٔ ${versionLabel} در حال دانلود است.`,
-      ready: `نسخهٔ ${versionLabel} آماده است و پس از پایان کار در صف نصب می‌شود.`,
-      installing: `در حال نصب نسخهٔ ${versionLabel}…`,
-      error: "به‌روزرسانی انجام نشد. می‌توانید دوباره بررسی کنید.",
-    };
-    message.textContent = captions[status.phase];
+    message.textContent = i18n.t(`update_${status.phase}`, { version: status.availableVersion ?? "" });
     check.disabled = ["checking", "downloading", "ready", "installing"].includes(status.phase);
     indicator.hidden = !["downloading", "ready", "installing"].includes(status.phase);
     progress.hidden = status.phase !== "downloading";
     if (status.total > 0) {
       const percent = Math.min(100, 100 * status.downloaded / status.total);
       progress.value = percent;
-      progress.title = `${locale.format(percent)}٪`;
+      progress.title = i18n.formats.percent.format(percent / 100);
     } else {
       progress.removeAttribute("value");
       progress.removeAttribute("title");
@@ -74,6 +63,7 @@ async function initializeUpdates({ invoke, listen, canInstall, finishSaving, onI
   }
 
   check.addEventListener("click", checkNow);
+  document.addEventListener("language-changed", render);
   render();
   try {
     await listen("update-status", ({ payload }) => {

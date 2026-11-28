@@ -102,22 +102,35 @@ pub(crate) async fn check_for_updates(app: AppHandle) {
 }
 
 async fn check_and_download(app: &AppHandle, updates: &Updates) -> Result<(), String> {
+    let language = || app.state::<AppState>().language();
     let releases = format!("https://github.com/{}/releases", repository());
     let manifest = format!("{releases}/latest/download/latest.json")
         .parse()
-        .map_err(|_| "نشانی انتشار GitHub معتبر نیست.".to_owned())?;
+        .map_err(|_| {
+            language().text(
+                "نشانی انتشار GitHub معتبر نیست.",
+                "The GitHub release URL is invalid.",
+            )
+        })?;
     let updater = app
         .updater_builder()
         .endpoints(vec![manifest])
-        .map_err(|_| "نشانی مانیفست GitHub معتبر نیست.".to_owned())?
+        .map_err(|_| {
+            language().text(
+                "نشانی مانیفست GitHub معتبر نیست.",
+                "The GitHub update manifest URL is invalid.",
+            )
+        })?
         .configure_client(|client| client.https_only(true).referer(false))
         .timeout(Duration::from_secs(20))
         .build()
         .map_err(|error| error.to_string())?;
-    let Some(mut update) = updater
-        .check()
-        .await
-        .map_err(|_| "اطلاعات آخرین نسخه از GitHub دریافت نشد.".to_owned())?
+    let Some(mut update) = updater.check().await.map_err(|_| {
+        language().text(
+            "اطلاعات آخرین نسخه از GitHub دریافت نشد.",
+            "Could not read the latest release from GitHub.",
+        )
+    })?
     else {
         updates.change(app, |state| state.status.phase = Phase::Current);
         return Ok(());
@@ -126,7 +139,12 @@ async fn check_and_download(app: &AppHandle, updates: &Updates) -> Result<(), St
     let expected_installer =
         format!("{releases}/download/v{version}/VideoConverter-{version}-windows-x64-setup.exe");
     if update.download_url.as_str() != expected_installer {
-        return Err("مانیفست با برچسب و بستهٔ همان انتشار GitHub هم‌خوانی ندارد.".into());
+        return Err(language()
+            .text(
+                "مانیفست با برچسب و بستهٔ همان انتشار GitHub هم‌خوانی ندارد.",
+                "The update manifest does not match the GitHub release and installer.",
+            )
+            .into());
     }
     update.timeout = Some(Duration::from_secs(900));
     updates.change(app, |state| {
@@ -153,7 +171,12 @@ async fn check_and_download(app: &AppHandle, updates: &Updates) -> Result<(), St
             || {},
         )
         .await
-        .map_err(|_| "دانلود یا تأیید امضای بستهٔ GitHub انجام نشد.".to_owned())?;
+        .map_err(|_| {
+            language().text(
+                "دانلود یا تأیید امضای بستهٔ GitHub انجام نشد.",
+                "Could not download or verify the GitHub installer.",
+            )
+        })?;
     updates.change(app, |state| {
         let length = bytes.len() as u64;
         state.status.downloaded = length;
@@ -185,7 +208,14 @@ pub(crate) async fn install_prepared_update(app: AppHandle) -> Result<bool, Stri
         let _ = app.emit_to("main", "update-status", status);
         if let Err(error) = update.install(bytes) {
             lock(&app_state.batch).updating = false;
-            updates.failure(&app, format!("اجرای نصب‌کننده انجام نشد. {error}"));
+            updates.failure(
+                &app,
+                app_state.language().detail(
+                    "اجرای نصب‌کننده انجام نشد.",
+                    "Could not start the installer.",
+                    error,
+                ),
+            );
             return Ok(false);
         }
         Ok(true)

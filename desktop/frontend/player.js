@@ -23,29 +23,29 @@
     dialog.setAttribute('aria-labelledby', 'player-title');
     dialog.innerHTML = `
       <div class="panel-heading player-heading">
-        <h2 id="player-title">پخش خروجی</h2>
-        <form method="dialog"><button class="btn icon-only" aria-label="بستن پخش‌کننده" autofocus><span class="icon icon-cross" aria-hidden="true"></span></button></form>
+        <h2 id="player-title" data-i18n="playOutput"></h2>
+        <form method="dialog"><button class="btn icon-only" data-i18n-label="closePlayer" autofocus><span class="icon icon-cross" aria-hidden="true"></span></button></form>
       </div>
       <div class="player-body">
         <div class="player-frame">
-          <video playsinline preload="metadata" aria-label="ویدیوی خروجی"></video>
+          <video playsinline preload="metadata" data-i18n-label="outputVideo"></video>
           <div class="player-controls">
-            <input class="player-range player-seek" type="range" min="0" max="1" value="0" step="0.01" aria-label="موقعیت پخش" disabled>
+            <input class="player-range player-seek" type="range" min="0" max="1" value="0" step="0.01" data-i18n-label="playbackPosition" disabled>
             <div class="player-transport">
-              <button type="button" class="player-button player-toggle" aria-label="پخش ویدیو" disabled><span class="icon icon-play" aria-hidden="true"></span></button>
+              <button type="button" class="player-button player-toggle" disabled><span class="icon icon-play" aria-hidden="true"></span></button>
               <span class="player-time" dir="ltr">0:00 / 0:00</span>
               <div class="player-audio">
-                <button type="button" class="player-button player-mute" aria-label="قطع صدا"><span class="icon icon-volume" aria-hidden="true"></span></button>
-                <input type="range" class="player-range player-volume" min="0" max="1" step="0.05" value="1" aria-label="بلندی صدا">
+                <button type="button" class="player-button player-mute"><span class="icon icon-volume" aria-hidden="true"></span></button>
+                <input type="range" class="player-range player-volume" min="0" max="1" step="0.05" value="1" data-i18n-label="volume">
               </div>
-              <label class="visually-hidden" for="player-speed">سرعت پخش</label>
-              <select id="player-speed" aria-label="سرعت پخش">
-                <option value="0.5">۰٫۵×</option>
-                <option value="1" selected>۱×</option>
-                <option value="1.5">۱٫۵×</option>
-                <option value="2">۲×</option>
+              <label class="visually-hidden" for="player-speed" data-i18n="playbackSpeed"></label>
+              <select id="player-speed">
+                <option value="0.5"></option>
+                <option value="1" selected></option>
+                <option value="1.5"></option>
+                <option value="2"></option>
               </select>
-              <button type="button" class="player-button player-fullscreen" aria-label="تمام‌صفحه"><span class="icon icon-fullscreen" aria-hidden="true"></span></button>
+              <button type="button" class="player-button player-fullscreen"><span class="icon icon-fullscreen" aria-hidden="true"></span></button>
             </div>
           </div>
         </div>
@@ -61,8 +61,9 @@
     const speed = dialog.querySelector('#player-speed');
     const time = dialog.querySelector('.player-time');
     const fullscreen = dialog.querySelector('.player-fullscreen');
+    i18n.apply(dialog);
     document.body.append(dialog);
-    enhanceSelects([speed]);
+    const speedControl = enhanceSelects([speed]);
 
     function clock(seconds) {
       const total = Math.floor(seconds || 0);
@@ -80,16 +81,16 @@
       seek.style.setProperty('--range-fill', `${duration ? 100 * position / duration : 0}%`);
       time.textContent = `${clock(position)} / ${clock(duration)}`;
       toggle.disabled = video.readyState === 0;
-      toggle.setAttribute('aria-label', video.paused ? 'پخش ویدیو' : 'مکث ویدیو');
+      toggle.setAttribute('aria-label', i18n.t(video.paused ? 'playVideo' : 'pauseVideo'));
       toggle.firstElementChild.className = `icon icon-${video.paused ? 'play' : 'pause'}`;
       volume.value = gain;
       volume.style.setProperty('--range-fill', `${100 * gain}%`);
-      mute.setAttribute('aria-label', gain ? 'قطع صدا' : 'وصل صدا');
+      mute.setAttribute('aria-label', i18n.t(gain ? 'mute' : 'unmute'));
       mute.firstElementChild.className = `icon icon-${gain ? 'volume' : 'muted'}`;
     }
 
     function togglePlayback() {
-      if (video.paused) video.play().catch(() => showError('پخش این خروجی شروع نشد.'));
+      if (video.paused) video.play().catch(() => showError(i18n.t('cannotStartPlayback')));
       else video.pause();
     }
 
@@ -110,15 +111,24 @@
       try {
         if (document.fullscreenElement === frame) await document.exitFullscreen();
         else await frame.requestFullscreen();
-      } catch { showError('حالت تمام‌صفحه در دسترس نیست.'); }
+      } catch { showError(i18n.t('noFullscreen')); }
     });
-    document.addEventListener('fullscreenchange', () => {
-      fullscreen.setAttribute('aria-label', document.fullscreenElement === frame ? 'خروج از تمام‌صفحه' : 'تمام‌صفحه');
-    });
+    function renderFullscreen() {
+      fullscreen.setAttribute('aria-label', i18n.t(document.fullscreenElement === frame ? 'exitFullscreen' : 'fullscreen'));
+    }
+
+    function renderLanguage() {
+      for (const option of speed.options) option.textContent = `${i18n.formats.decimal.format(Number(option.value))}×`;
+      speedControl.sync();
+      renderControls();
+      renderFullscreen();
+    }
+    document.addEventListener('fullscreenchange', renderFullscreen);
+    document.addEventListener('language-changed', renderLanguage);
     for (const event of ['loadedmetadata', 'durationchange', 'timeupdate', 'play', 'pause', 'ended', 'volumechange', 'emptied']) {
       video.addEventListener(event, renderControls);
     }
-    renderControls();
+    renderLanguage();
     dialog.addEventListener('close', () => {
       activeRequest += 1;
       if (document.fullscreenElement === frame) document.exitFullscreen().catch(() => {});
@@ -132,7 +142,7 @@
       preparedPath = null;
     });
     video.addEventListener('error', () => {
-      if (dialog.open) showError('پخش این خروجی ممکن نبود. فایل را از پوشهٔ خروجی باز کنید.');
+      if (dialog.open) showError(i18n.t('cannotPlay'));
     });
     return { dialog, video, message };
   }
@@ -164,14 +174,14 @@
         const manifest = asset.replace(/%5c|%2f/gi, '/');
         hls = new window.Hls({ enableWorker: false });
         hls.on(window.Hls.Events.ERROR, (_event, data) => {
-          if (data.fatal) showError('پخش HLS ممکن نبود. فهرست پخش و قطعه‌های خروجی را بررسی کنید.');
+          if (data.fatal) showError(i18n.t('cannotPlayHls'));
         });
         hls.attachMedia(player.video);
         hls.loadSource(manifest);
       } else if (!isHls || player.video.canPlayType('application/vnd.apple.mpegurl')) {
         player.video.src = isHls ? asset.replace(/%5c|%2f/gi, '/') : asset;
       } else {
-        showError('پخش HLS در این نسخه از WebView2 در دسترس نیست.');
+        showError(i18n.t('hlsNotSupported'));
       }
     } catch (error) {
       if (request === activeRequest && player.dialog.open) showError(String(error));

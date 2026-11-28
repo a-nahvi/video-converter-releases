@@ -1,6 +1,6 @@
 <div align="center">
   <h1>Video Converter</h1>
-  <p>Batch video conversion for Windows with a Persian interface. Create encrypted HLS packages or MP4 and WebM archives on your device.</p>
+  <p>Batch video conversion for Windows with Persian and English interfaces. Create encrypted HLS packages or MP4 and WebM archives on your device.</p>
   <p><a href="https://github.com/a-nahvi/video-converter-releases/releases/latest"><strong>Download for Windows x64</strong></a> · <a href="README.fa.md">راهنمای فارسی</a> · <a href="https://github.com/a-nahvi/video-converter-releases/issues/new/choose">Report an issue</a></p>
 </div>
 
@@ -17,6 +17,10 @@
 1. Drop videos into the app or add them with the file picker.
 2. In **Settings** (تنظیمات), choose the output format, quality, resolution and destination. The queue shows an estimated size range for each output before you start.
 3. Review or edit the suggested Finglish filenames. Start the batch, then use **History** (تاریخچه) to play the result, locate its ZIP in File Explorer or remove the history entry.
+
+## App language
+
+In **Settings → App language** (تنظیمات ← زبان برنامه), choose English for a left-to-right layout or فارسی for a right-to-left layout. The app applies the change immediately and remembers it when you reopen it.
 
 | Output | Contents of each ZIP | Default destination beside the input |
 | --- | --- | --- |

@@ -136,7 +136,11 @@ mod tests {
 
     #[test]
     fn deleting_legacy_rows_keeps_remaining_ids_and_output_files() {
-        let directory = crate::engine::StagingDirectory::create(&std::env::temp_dir()).unwrap();
+        let directory = crate::engine::StagingDirectory::create(
+            &std::env::temp_dir(),
+            crate::language::Language::Fa,
+        )
+        .unwrap();
         let journal = directory.path().join("history.jsonl");
         let output = directory.path().join("a.zip");
         fs::write(&output, b"archive").unwrap();

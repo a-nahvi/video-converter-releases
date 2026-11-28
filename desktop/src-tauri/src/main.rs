@@ -3,12 +3,14 @@
 mod archive;
 mod engine;
 mod history;
+mod language;
 mod naming;
 mod updates;
 #[cfg(windows)]
 mod window_brand;
 
 use engine::{Format, Settings};
+use language::Language;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -28,6 +30,7 @@ struct Preferences {
     settings: Settings,
     output_directory: Option<PathBuf>,
     finglish: bool,
+    language: Language,
 }
 
 impl Default for Preferences {
@@ -36,6 +39,7 @@ impl Default for Preferences {
             settings: Settings::default(),
             output_directory: None,
             finglish: true,
+            language: Language::default(),
         }
     }
 }
@@ -181,6 +185,12 @@ struct AppState {
     playback_directories: Mutex<HashMap<PathBuf, engine::StagingDirectory>>,
 }
 
+impl AppState {
+    fn language(&self) -> Language {
+        lock(&self.preferences).language
+    }
+}
+
 fn lock<T>(value: &Mutex<T>) -> MutexGuard<'_, T> {
     value.lock().unwrap_or_else(|error| error.into_inner())
 }
@@ -196,9 +206,20 @@ async fn save_preferences(app: AppHandle, preferences: Preferences) -> Result<()
         validate_preferences(&preferences)?;
         let state = app.state::<AppState>();
         let mut current = lock(&state.preferences);
-        write_preferences(&state.preferences_file, &preferences)
-            .map_err(|error| format!("ذخیرهٔ تنظیمات انجام نشد. {error}"))?;
+        let language = preferences.language;
+        write_preferences(&state.preferences_file, &preferences).map_err(|error| {
+            language.detail(
+                "ذخیرهٔ تنظیمات انجام نشد.",
+                "Could not save settings.",
+                error,
+            )
+        })?;
+        let language_changed = current.language != language;
         *current = preferences;
+        drop(current);
+        if language_changed && let Some(window) = app.get_webview_window("main") {
+            let _ = window.set_title(language.window_title());
+        }
         Ok(())
     })
     .await
@@ -209,8 +230,13 @@ async fn save_preferences(app: AppHandle, preferences: Preferences) -> Result<()
 async fn get_history(app: AppHandle) -> Result<Vec<history::Entry>, String> {
     async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        let entries = history::list(&state.history_file)
-            .map_err(|error| format!("خواندن تاریخچه ممکن نبود. {error}"))?;
+        let entries = history::list(&state.history_file).map_err(|error| {
+            state.language().detail(
+                "خواندن تاریخچه ممکن نبود.",
+                "Could not read history.",
+                error,
+            )
+        })?;
         lock(&state.outputs).extend(entries.iter().filter_map(|entry| entry.output.clone()));
         Ok(entries)
     })
@@ -221,8 +247,12 @@ async fn get_history(app: AppHandle) -> Result<Vec<history::Entry>, String> {
 #[tauri::command]
 async fn delete_history(app: AppHandle, id: Option<String>) -> Result<(), String> {
     async_runtime::spawn_blocking(move || {
-        history::delete(&app.state::<AppState>().history_file, id.as_deref())
-            .map_err(|error| format!("حذف تاریخچه انجام نشد. {error}"))
+        let state = app.state::<AppState>();
+        history::delete(&state.history_file, id.as_deref()).map_err(|error| {
+            state
+                .language()
+                .detail("حذف تاریخچه انجام نشد.", "Could not delete history.", error)
+        })
     })
     .await
     .map_err(|error| error.to_string())?
@@ -230,17 +260,18 @@ async fn delete_history(app: AppHandle, id: Option<String>) -> Result<(), String
 
 #[tauri::command]
 async fn choose_files(window: WebviewWindow) -> Vec<PathBuf> {
+    let language = window.state::<AppState>().language();
     let dialog = rfd::AsyncFileDialog::new()
         .set_parent(&window)
-        .set_title("انتخاب ویدیوها")
+        .set_title(language.text("انتخاب ویدیوها", "Choose videos"))
         .add_filter(
-            "ویدیوها",
+            language.text("ویدیوها", "Videos"),
             &[
                 "mp4", "m4v", "mov", "mkv", "webm", "avi", "wmv", "flv", "mpeg", "mpg", "ts",
                 "mts", "m2ts", "3gp", "ogv", "mxf", "vob", "m3u8",
             ],
         )
-        .add_filter("همهٔ فایل‌ها", &["*"]);
+        .add_filter(language.text("همهٔ فایل‌ها", "All files"), &["*"]);
     dialog
         .pick_files()
         .await
@@ -252,15 +283,16 @@ async fn choose_files(window: WebviewWindow) -> Vec<PathBuf> {
 
 #[tauri::command]
 async fn choose_output_directory(window: WebviewWindow) -> Option<PathBuf> {
+    let language = window.state::<AppState>().language();
     rfd::AsyncFileDialog::new()
         .set_parent(&window)
-        .set_title("انتخاب پوشهٔ خروجی")
+        .set_title(language.text("انتخاب پوشهٔ خروجی", "Choose output folder"))
         .pick_folder()
         .await
         .map(|folder| folder.path().to_path_buf())
 }
 
-fn encoder_tools(app: &AppHandle) -> Result<(PathBuf, PathBuf), String> {
+fn encoder_tools(app: &AppHandle, language: Language) -> Result<(PathBuf, PathBuf), String> {
     let mut candidates = Vec::new();
     if let Ok(resource_dir) = app.path().resource_dir() {
         candidates.push(resource_dir.join("ffmpeg"));
@@ -278,16 +310,28 @@ fn encoder_tools(app: &AppHandle) -> Result<(PathBuf, PathBuf), String> {
             return Ok((ffmpeg, ffprobe));
         }
     }
-    Err("موتور تبدیل پیدا نشد. نسخهٔ نصب‌شده را دوباره نصب کنید یا FFmpeg و FFprobe را به PATH ویندوز اضافه کنید.".into())
+    Err(language.text(
+        "موتور تبدیل پیدا نشد. نسخهٔ نصب‌شده را دوباره نصب کنید یا FFmpeg و FFprobe را به PATH ویندوز اضافه کنید.",
+        "The converter could not find FFmpeg or FFprobe. Reinstall the app or add both tools to the Windows PATH.",
+    ).into())
 }
 
-fn validate_input(path: &Path) -> Result<fs::Metadata, String> {
+fn validate_input(path: &Path, language: Language) -> Result<fs::Metadata, String> {
     if !path.is_absolute() {
-        return Err("مسیر ویدیو باید کامل باشد.".into());
+        return Err(language
+            .text(
+                "مسیر ویدیو باید کامل باشد.",
+                "The video path must be absolute.",
+            )
+            .into());
     }
-    let metadata = fs::metadata(path).map_err(|error| format!("فایل در دسترس نیست. {error}"))?;
+    let metadata = fs::metadata(path).map_err(|error| {
+        language.detail("فایل در دسترس نیست.", "The file is unavailable.", error)
+    })?;
     if !metadata.is_file() {
-        return Err("یک فایل ویدیو انتخاب کنید.".into());
+        return Err(language
+            .text("یک فایل ویدیو انتخاب کنید.", "Choose a video file.")
+            .into());
     }
     Ok(metadata)
 }
@@ -295,7 +339,8 @@ fn validate_input(path: &Path) -> Result<fs::Metadata, String> {
 #[tauri::command]
 async fn inspect_files(app: AppHandle, paths: Vec<PathBuf>) -> Result<Inspection, String> {
     async_runtime::spawn_blocking(move || {
-        let (_, ffprobe) = encoder_tools(&app)?;
+        let language = app.state::<AppState>().language();
+        let (_, ffprobe) = encoder_tools(&app, language)?;
         let mut result = Inspection {
             items: Vec::new(),
             errors: Vec::new(),
@@ -305,8 +350,8 @@ async fn inspect_files(app: AppHandle, paths: Vec<PathBuf>) -> Result<Inspection
             if !seen.insert(windows_path_key(&path)) {
                 continue;
             }
-            let info = validate_input(&path).and_then(|metadata| {
-                let info = engine::probe(&ffprobe, &path)?;
+            let info = validate_input(&path, language).and_then(|metadata| {
+                let info = engine::probe(&ffprobe, &path, language)?;
                 Ok((metadata.len(), info))
             });
             match info {
@@ -330,34 +375,59 @@ async fn inspect_files(app: AppHandle, paths: Vec<PathBuf>) -> Result<Inspection
 }
 
 fn validate_preferences(preferences: &Preferences) -> Result<(), String> {
+    let language = preferences.language;
     if let Some(directory) = &preferences.output_directory
         && !directory.is_absolute()
     {
-        return Err("مسیر پوشهٔ خروجی باید کامل باشد.".into());
+        return Err(language
+            .text(
+                "مسیر پوشهٔ خروجی باید کامل باشد.",
+                "The output folder path must be absolute.",
+            )
+            .into());
     }
     let settings = &preferences.settings;
     if !matches!(settings.max_height, None | Some(480 | 720 | 1080))
         || !matches!(settings.max_width, None | Some(engine::DEFAULT_MAX_WIDTH))
         || (settings.max_width.is_some() && settings.max_height.is_some())
     {
-        return Err("اندازهٔ تصویر انتخاب‌شده پشتیبانی نمی‌شود.".into());
+        return Err(language
+            .text(
+                "اندازهٔ تصویر انتخاب‌شده پشتیبانی نمی‌شود.",
+                "The selected resolution is unsupported.",
+            )
+            .into());
     }
     if matches!(preferences.settings.format, Format::Hls)
         && !(2..=30).contains(&preferences.settings.segment_seconds)
     {
-        return Err("مدت هر قطعهٔ HLS باید بین ۲ تا ۳۰ ثانیه باشد.".into());
+        return Err(language
+            .text(
+                "مدت هر قطعهٔ HLS باید بین ۲ تا ۳۰ ثانیه باشد.",
+                "HLS segments must be between 2 and 30 seconds long.",
+            )
+            .into());
     }
     Ok(())
 }
 
 fn destination(item: &InputItem, preferences: &Preferences) -> Result<(PathBuf, String), String> {
+    let language = preferences.language;
     if !item.path.is_absolute() {
-        return Err("مسیر ویدیو باید کامل باشد.".into());
+        return Err(language
+            .text(
+                "مسیر ویدیو باید کامل باشد.",
+                "The video path must be absolute.",
+            )
+            .into());
     }
     let base = match &preferences.output_directory {
         Some(directory) => directory.clone(),
         None => {
-            let parent = item.path.parent().ok_or("پوشهٔ فایل ورودی پیدا نشد.")?;
+            let parent = item.path.parent().ok_or(language.text(
+                "پوشهٔ فایل ورودی پیدا نشد.",
+                "Could not find the input file's folder.",
+            ))?;
             let folder = if matches!(preferences.settings.format, Format::Hls) {
                 "output_hls"
             } else {
@@ -428,8 +498,11 @@ fn start_batch(
     preferences: Preferences,
 ) -> Result<(), String> {
     validate_preferences(&preferences)?;
+    let language = preferences.language;
     if items.is_empty() {
-        return Err("ابتدا ویدیو اضافه کنید.".into());
+        return Err(language
+            .text("ابتدا ویدیو اضافه کنید.", "Add a video first.")
+            .into());
     }
     let mut seen = HashSet::new();
     let work = items
@@ -437,22 +510,36 @@ fn start_batch(
         .filter(|item| seen.insert(windows_path_key(&item.path)))
         .map(|item| destination(&item, &preferences).map(|dest| (item.path, dest)))
         .collect::<Result<Vec<_>, _>>()?;
-    let (ffmpeg, ffprobe) = encoder_tools(&app)?;
+    let (ffmpeg, ffprobe) = encoder_tools(&app, language)?;
     let cancel = Arc::new(AtomicBool::new(false));
     {
         let state = app.state::<AppState>();
         let mut batch = lock(&state.batch);
         if batch.updating {
-            return Err("نسخهٔ جدید در حال نصب است.".into());
+            return Err(language
+                .text(
+                    "نسخهٔ جدید در حال نصب است.",
+                    "An update is already installing.",
+                )
+                .into());
         }
         if batch.cancel.is_some() || batch.closing {
-            return Err("یک صف تبدیل در حال اجراست.".into());
+            return Err(language
+                .text(
+                    "یک صف تبدیل در حال اجراست.",
+                    "A conversion batch is already running.",
+                )
+                .into());
         }
         batch.cancel = Some(Arc::clone(&cancel));
     }
 
     async_runtime::spawn_blocking(move || {
         let settings = &preferences.settings;
+        let context = engine::ConversionContext {
+            cancel: &cancel,
+            language,
+        };
         let state = app.state::<AppState>();
         for (path, (base, stem)) in work {
             let event = |status, progress, output: Option<&Path>, error: Option<&str>| {
@@ -485,8 +572,8 @@ fn start_batch(
                 continue;
             }
             event(JobStatus::Running, 0, None, None);
-            let result = validate_input(&path).and_then(|_| {
-                let info = engine::probe_cancellable(&ffprobe, &path, &cancel)?;
+            let result = validate_input(&path, language).and_then(|_| {
+                let info = engine::probe_cancellable(&ffprobe, &path, context)?;
                 engine::convert(
                     &ffmpeg,
                     &path,
@@ -494,7 +581,7 @@ fn start_batch(
                     &stem,
                     settings,
                     info.duration,
-                    &cancel,
+                    context,
                     |progress| {
                         event(JobStatus::Running, progress, None, None);
                     },
@@ -538,9 +625,12 @@ fn explorer() -> Command {
 }
 
 #[tauri::command]
-fn open_folder(path: PathBuf) -> Result<(), String> {
+fn open_folder(state: State<'_, AppState>, path: PathBuf) -> Result<(), String> {
     if !path.is_absolute() || !path.is_dir() {
-        return Err("پوشه در دسترس نیست.".into());
+        return Err(state
+            .language()
+            .text("پوشه در دسترس نیست.", "The folder is unavailable.")
+            .into());
     }
     explorer()
         .arg(path)
@@ -550,11 +640,17 @@ fn open_folder(path: PathBuf) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn show_in_explorer(path: PathBuf) -> Result<(), String> {
+fn show_in_explorer(state: State<'_, AppState>, path: PathBuf) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
 
     if !path.is_absolute() || !path.is_file() {
-        return Err("فایل خروجی در دسترس نیست.".into());
+        return Err(state
+            .language()
+            .text(
+                "فایل خروجی در دسترس نیست.",
+                "The output file is unavailable.",
+            )
+            .into());
     }
     let mut argument = std::ffi::OsString::from("/select,\"");
     argument.push(&path);
@@ -570,27 +666,49 @@ fn show_in_explorer(path: PathBuf) -> Result<(), String> {
 async fn prepare_player(app: AppHandle, path: PathBuf) -> Result<PathBuf, String> {
     async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
+        let language = state.language();
         if !lock(&state.outputs).contains(&path) || !path.is_file() {
-            return Err("فایل خروجی برای پخش در دسترس نیست.".into());
+            return Err(language
+                .text(
+                    "فایل خروجی برای پخش در دسترس نیست.",
+                    "The output file is unavailable for playback.",
+                )
+                .into());
         }
         let scope = app.asset_protocol_scope();
         if path
             .extension()
             .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
         {
-            let directory = engine::StagingDirectory::create(&env::temp_dir())?;
-            let media = archive::unpack_for_player(&path, directory.path())
-                .map_err(|error| format!("آماده‌سازی ZIP برای پخش انجام نشد. {error}"))?;
+            let directory = engine::StagingDirectory::create(&env::temp_dir(), language)?;
+            let media =
+                archive::unpack_for_player(&path, directory.path(), language).map_err(|error| {
+                    language.detail(
+                        "آماده‌سازی ZIP برای پخش انجام نشد.",
+                        "Could not prepare the ZIP for playback.",
+                        error,
+                    )
+                })?;
             scope
                 .allow_directory(directory.path(), false)
-                .map_err(|error| format!("آماده‌سازی پخش انجام نشد. {error}"))?;
+                .map_err(|error| {
+                    language.detail(
+                        "آماده‌سازی پخش انجام نشد.",
+                        "Could not prepare playback.",
+                        error,
+                    )
+                })?;
             lock(&state.playback_directories).insert(media.clone(), directory);
             return Ok(media);
         }
         let allow = |path: &Path| {
-            scope
-                .allow_file(path)
-                .map_err(|error| format!("آماده‌سازی پخش انجام نشد. {error}"))
+            scope.allow_file(path).map_err(|error| {
+                language.detail(
+                    "آماده‌سازی پخش انجام نشد.",
+                    "Could not prepare playback.",
+                    error,
+                )
+            })
         };
         allow(&path)?;
         if path
@@ -655,6 +773,9 @@ fn main() {
                 }
                 None => Preferences::default(),
             };
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_title(preferences.language.window_title());
+            }
             app.manage(AppState {
                 preferences_file,
                 history_file: config_directory.join("history.jsonl"),
@@ -711,6 +832,7 @@ mod preferences_tests {
         assert_eq!(preferences.settings.format, Format::Hls);
         assert_eq!(preferences.settings.max_width, Some(1024));
         assert!(preferences.settings.encrypt);
+        assert_eq!(preferences.language, Language::Fa);
     }
 
     #[test]
@@ -741,5 +863,21 @@ mod preferences_tests {
         assert_eq!(saved.settings.segment_seconds, 6);
         assert!(!saved.settings.encrypt);
         assert_eq!(saved.settings.max_width, None);
+        assert_eq!(saved.language, Language::Fa);
+    }
+
+    #[test]
+    fn language_round_trips_with_saved_preferences() {
+        let original = SavedPreferences {
+            schema_version: PREFERENCES_SCHEMA,
+            preferences: Preferences {
+                language: Language::En,
+                ..Preferences::default()
+            },
+        };
+        let (saved, migrated) =
+            decode_preferences(&serde_json::to_vec(&original).unwrap()).unwrap();
+        assert!(!migrated);
+        assert_eq!(saved.language, Language::En);
     }
 }

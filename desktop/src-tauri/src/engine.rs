@@ -1,3 +1,4 @@
+use crate::language::Language;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom};
@@ -9,9 +10,26 @@ use std::time::Duration;
 
 pub(crate) const PLAYLIST: &str = "playlist.m3u8";
 pub(crate) const STAGED_KEY: &str = "key.bin";
-const CANCELLED: &str = "تبدیل لغو شد.";
 pub const DEFAULT_MAX_WIDTH: u32 = 1024;
 const HLS_EXTENSIONS: &str = "3gp,aac,ac3,avi,bin,eac3,flac,key,m4a,m4s,m4v,mkv,mov,mp2,mp3,mp4,mpeg,mpegts,mpg,oga,ogg,ogv,m3u8,ts,vob,wav";
+
+#[derive(Clone, Copy)]
+pub(crate) struct ConversionContext<'a> {
+    pub(crate) cancel: &'a AtomicBool,
+    pub(crate) language: Language,
+}
+
+impl ConversionContext<'_> {
+    fn check_cancelled(self) -> Result<(), String> {
+        if self.cancel.load(Ordering::Relaxed) {
+            return Err(self
+                .language
+                .text("تبدیل لغو شد.", "Conversion was cancelled.")
+                .into());
+        }
+        Ok(())
+    }
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -257,30 +275,41 @@ fn probe_command(ffprobe: &Path, input: &Path) -> Command {
     command
 }
 
-pub fn probe(ffprobe: &Path, input: &Path) -> Result<VideoInfo, String> {
-    let output = probe_command(ffprobe, input)
-        .output()
-        .map_err(|error| format!("اجرای FFprobe ممکن نبود. {error}"))?;
-    parse_probe(output)
+pub fn probe(ffprobe: &Path, input: &Path, language: Language) -> Result<VideoInfo, String> {
+    let output = probe_command(ffprobe, input).output().map_err(|error| {
+        language.detail(
+            "اجرای FFprobe ممکن نبود.",
+            "Could not start FFprobe.",
+            error,
+        )
+    })?;
+    parse_probe(output, language)
 }
 
 pub fn probe_cancellable(
     ffprobe: &Path,
     input: &Path,
-    cancel: &AtomicBool,
+    context: ConversionContext<'_>,
 ) -> Result<VideoInfo, String> {
-    check_cancelled(cancel)?;
+    context.check_cancelled()?;
+    let language = context.language;
     let mut child = probe_command(ffprobe, input)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|error| format!("اجرای FFprobe ممکن نبود. {error}"))?;
+        .map_err(|error| {
+            language.detail(
+                "اجرای FFprobe ممکن نبود.",
+                "Could not start FFprobe.",
+                error,
+            )
+        })?;
     let stdout = child.stdout.take().expect("FFprobe uses piped stdout");
     let stderr = child.stderr.take().expect("FFprobe uses piped stderr");
     let output = thread::scope(|scope| {
-        let read_stdout = scope.spawn(|| read_probe_pipe(stdout));
-        let read_stderr = scope.spawn(|| read_probe_pipe(stderr));
-        let status = wait_cancellable(&mut child, cancel, || {})?;
+        let read_stdout = scope.spawn(|| read_probe_pipe(stdout, language));
+        let read_stderr = scope.spawn(|| read_probe_pipe(stderr, language));
+        let status = wait_cancellable(&mut child, context, || {})?;
         // Drain both streams while the child runs so an error cannot fill a pipe and stall it.
         let stdout = read_stdout
             .join()
@@ -294,27 +323,38 @@ pub fn probe_cancellable(
             stderr,
         })
     })?;
-    check_cancelled(cancel)?;
-    parse_probe(output)
+    context.check_cancelled()?;
+    parse_probe(output, language)
 }
 
-fn read_probe_pipe(mut pipe: impl Read) -> Result<Vec<u8>, String> {
+fn read_probe_pipe(mut pipe: impl Read, language: Language) -> Result<Vec<u8>, String> {
     let mut bytes = Vec::new();
-    pipe.read_to_end(&mut bytes)
-        .map_err(|error| format!("خواندن اطلاعات ویدیو ممکن نبود. {error}"))?;
+    pipe.read_to_end(&mut bytes).map_err(|error| {
+        language.detail(
+            "خواندن اطلاعات ویدیو ممکن نبود.",
+            "Could not read video information.",
+            error,
+        )
+    })?;
     Ok(bytes)
 }
 
-fn parse_probe(output: Output) -> Result<VideoInfo, String> {
+fn parse_probe(output: Output, language: Language) -> Result<VideoInfo, String> {
     if !output.status.success() {
-        return Err(format!(
-            "خواندن فایل ویدیو ممکن نبود. {}",
-            String::from_utf8_lossy(&output.stderr).trim()
+        return Err(language.detail(
+            "خواندن فایل ویدیو ممکن نبود.",
+            "Could not read the video file.",
+            String::from_utf8_lossy(&output.stderr).trim(),
         ));
     }
 
-    let details: Probe = serde_json::from_slice(&output.stdout)
-        .map_err(|error| format!("خواندن اطلاعات ویدیو ممکن نبود. {error}"))?;
+    let details: Probe = serde_json::from_slice(&output.stdout).map_err(|error| {
+        language.detail(
+            "خواندن اطلاعات ویدیو ممکن نبود.",
+            "Could not read video information.",
+            error,
+        )
+    })?;
     let (stream, width, height) = details
         .streams
         .iter()
@@ -328,7 +368,10 @@ fn parse_probe(output: Output) -> Result<VideoInfo, String> {
         })
         .and_then(|stream| Some((stream, stream.width?, stream.height?)))
         .filter(|(_, width, height)| *width > 0 && *height > 0)
-        .ok_or("این فایل تصویر ویدیویی قابل تبدیل ندارد.")?;
+        .ok_or(language.text(
+            "این فایل تصویر ویدیویی قابل تبدیل ندارد.",
+            "This file has no video track to convert.",
+        ))?;
     let duration = [
         details
             .format
@@ -408,17 +451,28 @@ pub fn preview_reserved(
 pub(crate) struct StagingDirectory(PathBuf);
 
 impl StagingDirectory {
-    pub(crate) fn create(base: &Path) -> Result<Self, String> {
+    pub(crate) fn create(base: &Path, language: Language) -> Result<Self, String> {
         loop {
             let mut random = [0u8; 12];
-            getrandom::fill(&mut random)
-                .map_err(|error| format!("ساخت پوشهٔ موقت ممکن نبود. {error}"))?;
+            getrandom::fill(&mut random).map_err(|error| {
+                language.detail(
+                    "ساخت پوشهٔ موقت ممکن نبود.",
+                    "Could not create the temporary folder.",
+                    error,
+                )
+            })?;
             let suffix: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
             let directory = base.join(format!(".video-converter-{suffix}"));
             match fs::create_dir(&directory) {
                 Ok(()) => return Ok(Self(directory)),
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-                Err(error) => return Err(format!("نوشتن در پوشهٔ خروجی ممکن نبود. {error}")),
+                Err(error) => {
+                    return Err(language.detail(
+                        "نوشتن در پوشهٔ خروجی ممکن نبود.",
+                        "Could not write to the output folder.",
+                        error,
+                    ));
+                }
             }
         }
     }
@@ -441,26 +495,52 @@ pub fn convert(
     stem: &str,
     settings: &Settings,
     duration: f64,
-    cancel: &AtomicBool,
+    context: ConversionContext<'_>,
     progress: impl Fn(u8),
 ) -> Result<PathBuf, String> {
-    check_cancelled(cancel)?;
+    context.check_cancelled()?;
+    let language = context.language;
     if settings.format == Format::Hls && !(2..=30).contains(&settings.segment_seconds) {
-        return Err("مدت قطعهٔ HLS باید بین ۲ تا ۳۰ ثانیه باشد.".into());
+        return Err(language
+            .text(
+                "مدت قطعهٔ HLS باید بین ۲ تا ۳۰ ثانیه باشد.",
+                "HLS segments must be between 2 and 30 seconds long.",
+            )
+            .into());
     }
-    let input =
-        std::path::absolute(input).map_err(|error| format!("مسیر ورودی نامعتبر است. {error}"))?;
-    let ffmpeg =
-        std::path::absolute(ffmpeg).map_err(|error| format!("مسیر FFmpeg نامعتبر است. {error}"))?;
-    fs::create_dir_all(destination_directory)
-        .map_err(|error| format!("ساخت پوشهٔ خروجی ممکن نبود. {error}"))?;
-    let staging = StagingDirectory::create(destination_directory)?;
+    let input = std::path::absolute(input).map_err(|error| {
+        language.detail(
+            "مسیر ورودی نامعتبر است.",
+            "The input path is invalid.",
+            error,
+        )
+    })?;
+    let ffmpeg = std::path::absolute(ffmpeg).map_err(|error| {
+        language.detail(
+            "مسیر FFmpeg نامعتبر است.",
+            "The FFmpeg path is invalid.",
+            error,
+        )
+    })?;
+    fs::create_dir_all(destination_directory).map_err(|error| {
+        language.detail(
+            "ساخت پوشهٔ خروجی ممکن نبود.",
+            "Could not create the output folder.",
+            error,
+        )
+    })?;
+    let staging = StagingDirectory::create(destination_directory, language)?;
 
     let (relative_output, artifact) = match settings.format {
         Format::Hls => {
             let directory = staging.path().join("hls");
-            fs::create_dir(&directory)
-                .map_err(|error| format!("ساخت پوشهٔ موقت HLS ممکن نبود. {error}"))?;
+            fs::create_dir(&directory).map_err(|error| {
+                language.detail(
+                    "ساخت پوشهٔ موقت HLS ممکن نبود.",
+                    "Could not create the temporary HLS folder.",
+                    error,
+                )
+            })?;
             (Path::new("hls").join(PLAYLIST), directory)
         }
         format => {
@@ -474,30 +554,23 @@ pub fn convert(
     command.current_dir(staging.path());
     configure(&mut command, &input, &relative_output, settings);
     if settings.format == Format::Hls && settings.encrypt {
-        prepare_encryption(staging.path())?;
+        prepare_encryption(staging.path(), language)?;
     }
 
     let log = staging.path().join("ffmpeg.log");
-    check_cancelled(cancel)?;
-    run(&mut command, &log, duration, cancel, &progress)?;
-    check_cancelled(cancel)?;
+    context.check_cancelled()?;
+    run(&mut command, &log, duration, context, &progress)?;
+    context.check_cancelled()?;
     let final_path = package_and_publish(
         &staging.path().join("output.zip"),
         &artifact,
         destination_directory,
         stem,
         settings,
-        cancel,
+        context,
     )?;
     progress(100);
     Ok(final_path)
-}
-
-fn check_cancelled(cancel: &AtomicBool) -> Result<(), String> {
-    if cancel.load(Ordering::Relaxed) {
-        return Err(CANCELLED.into());
-    }
-    Ok(())
 }
 
 fn configure(command: &mut Command, input: &Path, output: &Path, settings: &Settings) {
@@ -595,9 +668,15 @@ fn configure_input<'a>(command: &'a mut Command, input: &Path) -> &'a mut Comman
     command.arg("-i").arg(input)
 }
 
-fn prepare_encryption(staging: &Path) -> Result<(), String> {
+fn prepare_encryption(staging: &Path, language: Language) -> Result<(), String> {
     let mut key = [0u8; 16];
-    getrandom::fill(&mut key).map_err(|error| format!("ساخت کلید HLS ممکن نبود. {error}"))?;
+    getrandom::fill(&mut key).map_err(|error| {
+        language.detail(
+            "ساخت کلید HLS ممکن نبود.",
+            "Could not generate the HLS key.",
+            error,
+        )
+    })?;
     fs::write(staging.join("hls").join(STAGED_KEY), key)
         .and_then(|()| {
             fs::write(
@@ -605,7 +684,13 @@ fn prepare_encryption(staging: &Path) -> Result<(), String> {
                 format!("{STAGED_KEY}\nhls/{STAGED_KEY}\n"),
             )
         })
-        .map_err(|error| format!("ذخیرهٔ کلید HLS ممکن نبود. {error}"))
+        .map_err(|error| {
+            language.detail(
+                "ذخیرهٔ کلید HLS ممکن نبود.",
+                "Could not save the HLS key.",
+                error,
+            )
+        })
 }
 
 pub(crate) fn is_hls_segment(name: &str) -> bool {
@@ -620,16 +705,24 @@ fn run(
     command: &mut Command,
     log: &Path,
     duration: f64,
-    cancel: &AtomicBool,
+    context: ConversionContext<'_>,
     progress: &impl Fn(u8),
 ) -> Result<(), String> {
-    let stderr =
-        File::create(log).map_err(|error| format!("نوشتن گزارش تبدیل ممکن نبود. {error}"))?;
+    let language = context.language;
+    let stderr = File::create(log).map_err(|error| {
+        language.detail(
+            "نوشتن گزارش تبدیل ممکن نبود.",
+            "Could not write the conversion log.",
+            error,
+        )
+    })?;
     let mut child = command
         .stdout(Stdio::piped())
         .stderr(stderr)
         .spawn()
-        .map_err(|error| format!("اجرای FFmpeg ممکن نبود. {error}"))?;
+        .map_err(|error| {
+            language.detail("اجرای FFmpeg ممکن نبود.", "Could not start FFmpeg.", error)
+        })?;
     let stdout = child
         .stdout
         .take()
@@ -639,7 +732,7 @@ fn run(
     let result = thread::scope(|scope| {
         scope.spawn(|| read_progress(stdout, duration, &current));
         let mut last = 0;
-        wait_cancellable(&mut child, cancel, || {
+        wait_cancellable(&mut child, context, || {
             let value = current.load(Ordering::Relaxed);
             if value > last {
                 progress(value);
@@ -650,24 +743,34 @@ fn run(
 
     if !result.success() {
         let details = log_tail(log).unwrap_or_default();
-        return Err(format!("تبدیل ویدیو انجام نشد. {}", details.trim()));
+        return Err(language.detail(
+            "تبدیل ویدیو انجام نشد.",
+            "Video conversion failed.",
+            details.trim(),
+        ));
     }
     Ok(())
 }
 
 fn wait_cancellable(
     child: &mut Child,
-    cancel: &AtomicBool,
+    context: ConversionContext<'_>,
     mut poll: impl FnMut(),
 ) -> Result<ExitStatus, String> {
     let result = loop {
-        if let Err(error) = check_cancelled(cancel) {
+        if let Err(error) = context.check_cancelled() {
             break Err(error);
         }
         match child.try_wait() {
             Ok(Some(status)) => return Ok(status),
             Ok(None) => {}
-            Err(error) => break Err(format!("بررسی وضعیت پردازش ممکن نبود. {error}")),
+            Err(error) => {
+                break Err(context.language.detail(
+                    "بررسی وضعیت پردازش ممکن نبود.",
+                    "Could not check the process status.",
+                    error,
+                ));
+            }
         }
         poll();
         thread::sleep(Duration::from_millis(100));
@@ -707,21 +810,34 @@ fn package_and_publish(
     base: &Path,
     stem: &str,
     settings: &Settings,
-    cancel: &AtomicBool,
+    context: ConversionContext<'_>,
 ) -> Result<PathBuf, String> {
+    let language = context.language;
     for destination in candidates(base, stem).filter(|path| available(path, settings.format)) {
-        check_cancelled(cancel)?;
+        context.check_cancelled()?;
         let name = destination
             .file_stem()
             .and_then(|name| name.to_str())
-            .ok_or("نام ZIP معتبر نیست.")?;
-        let packed = crate::archive::pack(zip, artifact, name, settings, cancel);
-        check_cancelled(cancel)?;
-        packed.map_err(|error| format!("ساخت فایل ZIP ممکن نبود. {error}"))?;
+            .ok_or(language.text("نام ZIP معتبر نیست.", "The ZIP filename is invalid."))?;
+        let packed = crate::archive::pack(zip, artifact, name, settings, context);
+        context.check_cancelled()?;
+        packed.map_err(|error| {
+            language.detail(
+                "ساخت فایل ZIP ممکن نبود.",
+                "Could not create the ZIP file.",
+                error,
+            )
+        })?;
         match move_without_overwrite(zip, &destination) {
             Ok(()) => return Ok(destination),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(format!("ذخیرهٔ خروجی ممکن نبود. {error}")),
+            Err(error) => {
+                return Err(language.detail(
+                    "ذخیرهٔ خروجی ممکن نبود.",
+                    "Could not save the output.",
+                    error,
+                ));
+            }
         }
     }
     unreachable!("output candidates are unbounded")
@@ -764,7 +880,7 @@ mod tests {
 
     #[test]
     fn preview_never_recommends_overwriting_a_file_or_hls_folder() {
-        let directory = StagingDirectory::create(&std::env::temp_dir()).unwrap();
+        let directory = StagingDirectory::create(&std::env::temp_dir(), Language::Fa).unwrap();
         fs::create_dir(directory.path().join("lesson")).unwrap();
         fs::write(directory.path().join("lesson.mp4"), "original").unwrap();
         assert_eq!(
@@ -802,8 +918,11 @@ mod tests {
         let result = probe_cancellable(
             Path::new("nonexistent.exe"),
             Path::new("video.mp4"),
-            &cancel,
+            ConversionContext {
+                cancel: &cancel,
+                language: Language::En,
+            },
         );
-        assert!(matches!(result, Err(error) if error == CANCELLED));
+        assert!(matches!(result, Err(error) if error == "Conversion was cancelled."));
     }
 }

@@ -1,4 +1,7 @@
-use crate::engine::{Format, PLAYLIST, STAGED_KEY, Settings, is_hls_segment};
+use crate::{
+    engine::{ConversionContext, Format, PLAYLIST, STAGED_KEY, Settings, is_hls_segment},
+    language::Language,
+};
 use std::{
     fs::{self, File},
     io::{self, BufReader, BufWriter, Read, Write},
@@ -15,8 +18,14 @@ fn stored() -> SimpleFileOptions {
     SimpleFileOptions::default().compression_method(CompressionMethod::Stored)
 }
 
-fn invalid_archive() -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, "ساختار ZIP خروجی معتبر نیست.")
+fn invalid_archive(language: Language) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        language.text(
+            "ساختار ZIP خروجی معتبر نیست.",
+            "The output ZIP structure is invalid.",
+        ),
+    )
 }
 
 pub(crate) fn pack(
@@ -24,8 +33,9 @@ pub(crate) fn pack(
     artifact: &Path,
     stem: &str,
     settings: &Settings,
-    cancel: &AtomicBool,
+    context: ConversionContext<'_>,
 ) -> io::Result<()> {
+    let cancel = context.cancel;
     let mut zip = ZipWriter::new(BufWriter::new(File::create(path)?)).set_auto_large_file();
     if settings.format == Format::Hls {
         let mut playlist = fs::read_to_string(artifact.join(PLAYLIST))?;
@@ -35,7 +45,10 @@ pub(crate) fn pack(
             if !playlist.contains(&staged_uri) {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
-                    "کلید HLS در فهرست پخش پیدا نشد.",
+                    context.language.text(
+                        "کلید HLS در فهرست پخش پیدا نشد.",
+                        "The HLS key is missing from the playlist.",
+                    ),
                 ));
             }
             // Leave spaces and Unicode literal for local HLS readers as well as browsers.
@@ -82,11 +95,16 @@ fn add_file(
     }
 }
 
-pub(crate) fn unpack_for_player(archive: &Path, directory: &Path) -> io::Result<PathBuf> {
+pub(crate) fn unpack_for_player(
+    archive: &Path,
+    directory: &Path,
+    language: Language,
+) -> io::Result<PathBuf> {
+    let invalid = || invalid_archive(language);
     let stem = archive
         .file_stem()
         .and_then(|stem| stem.to_str())
-        .ok_or_else(invalid_archive)?;
+        .ok_or_else(invalid)?;
     let key = key_name(stem);
     let mp4 = format!("{stem}.mp4");
     let webm = format!("{stem}.webm");
@@ -106,13 +124,13 @@ pub(crate) fn unpack_for_player(archive: &Path, directory: &Path) -> io::Result<
             || file.compression() != CompressionMethod::Stored
             || (!playable && !hls_asset)
         {
-            return Err(invalid_archive());
+            return Err(invalid());
         }
         let path = directory.join(name);
         io::copy(&mut file, &mut File::create_new(&path)?)?;
         if playable && media.replace(path).is_some() {
-            return Err(invalid_archive());
+            return Err(invalid());
         }
     }
-    media.ok_or_else(invalid_archive)
+    media.ok_or_else(invalid)
 }
