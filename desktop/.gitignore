@@ -1,0 +1,10 @@
+dist/
+frontend/vendor/app-icon.png
+frontend/vendor/iconly/
+src-tauri/target/
+src-tauri/gen/
+src-tauri/ffmpeg/
+src-tauri/icons/
+installer/.cache/
+installer/signer/target/
+test-output/

@@ -1,5 +1,4 @@
 <div align="center">
-  <img src="docs/app-icon.png" width="88" height="88" alt="">
   <h1>Video Converter</h1>
   <p>Batch video conversion for Windows with a Persian interface. Create encrypted HLS packages or MP4 and WebM archives on your device.</p>
   <p><a href="https://github.com/a-nahvi/video-converter-releases/releases/latest"><strong>Download for Windows x64</strong></a> · <a href="README.fa.md">راهنمای فارسی</a> · <a href="https://github.com/a-nahvi/video-converter-releases/issues/new/choose">Report an issue</a></p>
@@ -32,6 +31,23 @@ HLS is selected by default, with 10-second segments, AES-128 encryption and a ma
 Starting with **1.6.0**, the app checks the public GitHub Releases page at launch and every six hours while open. Downloads require no GitHub account or token. The app verifies the installer signature and installs the update when the conversion queue is idle. If your earlier version asks for a GitHub token, run the latest installer once to migrate. [Release history](https://github.com/a-nahvi/video-converter-releases/releases)
 
 Conversion, filename transliteration, playback and history run on your device. The updater connects to GitHub over HTTPS. Video Converter is built with Rust and Tauri and uses FFmpeg for encoding. Bundled libraries and FFmpeg source information are listed in the [third-party notices](docs/third-party.md).
+
+## Build from source
+
+Use Windows x64, PowerShell 7, the Rust MSVC toolchain, Visual Studio Build Tools with Desktop development with C++, WebView2 and Tauri CLI 2. Place FFmpeg and FFprobe on your `PATH` to convert videos in a development build.
+
+```powershell
+.\desktop\installer\prepare-development.ps1
+Set-Location desktop/src-tauri
+cargo test --locked
+cargo tauri build --no-bundle --ci
+```
+
+The development script creates the standard Windows app icon locally. Development builds use text labels for controls. See the [packaging guide](desktop/installer/README.md) for installer build and release details.
+
+## License
+
+The original project code is available under the [MIT License](LICENSE). Bundled components retain their own [licenses](docs/third-party.md).
 
 ## Support
 

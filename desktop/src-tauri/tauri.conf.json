@@ -1,0 +1,62 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Video Converter",
+  "version": "1.6.0",
+  "identifier": "ir.ahmad.videoconverter",
+  "build": {
+    "frontendDist": "../frontend"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Video Converter | تبدیل ویدیو",
+        "width": 1150,
+        "height": 780,
+        "minWidth": 720,
+        "minHeight": 560,
+        "center": true,
+        "decorations": false,
+        "shadow": true,
+        "backgroundColor": "#102C37",
+        "dragDropEnabled": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src ipc: http://ipc.localhost http://asset.localhost; media-src blob: http://asset.localhost; object-src 'none'; base-uri 'none'; frame-src 'none'",
+      "assetProtocol": {
+        "enable": true,
+        "scope": []
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "useLocalToolsDir": true,
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico",
+        "template": "../installer/nsis-template.nsi",
+        "installerHooks": "../installer/upgrade.nsh"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk2QjA5NzE4MjdBMjYzNzMKUldSelk2SW5HSmV3bHNRc2Uwbk0ydXZydHN2eFoyY3F1VHFzQngwOGs2L3laRkV6Qk9mc2FCS0QK",
+      "requireSignedVersion": true,
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

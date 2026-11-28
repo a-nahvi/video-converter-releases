@@ -1,0 +1,11 @@
+[package]
+name = "video-converter-release-signer"
+version = "1.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+base64 = "0.22"
+minisign = "0.8"
+
+[workspace]

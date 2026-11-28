@@ -1,0 +1,7 @@
+/encryption_keys/
+/node_modules/
+/output_hls/
+/output_video/
+.env
+.env.*
+*.dpapi

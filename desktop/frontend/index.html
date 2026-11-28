@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="fa" dir="rtl" class="text-actions">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>مبدل ویدیو</title>
+  <link rel="icon" type="image/png" href="vendor/app-icon.png">
+  <link rel="stylesheet" href="vendor/bootstrap.rtl.min.css">
+  <link rel="stylesheet" href="styles.css">
+  <script src="vendor/hls.min.js" defer></script>
+  <script src="controls.js" defer></script>
+  <script src="player.js" defer></script>
+  <script src="updates.js" defer></script>
+  <script src="titlebar.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="window-titlebar" dir="ltr">
+    <div class="window-drag" data-tauri-drag-region="deep">
+      <img class="window-brand" src="vendor/app-icon.png" alt="" width="28" height="28" draggable="false">
+      <span class="window-name" dir="rtl">مبدل ویدیو</span>
+    </div>
+    <div class="window-controls" role="group" aria-label="کنترل‌های پنجره">
+      <button class="window-control" id="titlebar-minimize" type="button" aria-label="کمینه کردن پنجره" title="کمینه کردن پنجره"><span class="caption-icon caption-minimize" aria-hidden="true"></span></button>
+      <button class="window-control" id="titlebar-maximize" type="button" aria-label="بزرگ کردن پنجره" title="بزرگ کردن پنجره"><span class="caption-icon caption-maximize" aria-hidden="true"></span></button>
+      <button class="window-control window-close" id="titlebar-close" type="button" aria-label="بستن پنجره" title="بستن پنجره"><span class="caption-icon caption-close" aria-hidden="true"></span></button>
+    </div>
+  </header>
+  <div class="app-shell">
+    <aside class="app-sidebar" id="app-sidebar">
+      <nav class="app-nav" id="app-nav" aria-label="بخش‌های برنامه">
+        <button type="button" class="nav-button motion-trigger" id="conversion-nav" aria-current="page" aria-controls="conversion-view" aria-label="تبدیل ویدیو" title="تبدیل ویدیو">
+          <span class="motion-icon motion-film" aria-hidden="true"><span class="icon icon-clapper"></span></span><span class="sidebar-label">تبدیل ویدیو</span>
+        </button>
+        <button type="button" class="nav-button motion-trigger" id="history-nav" aria-controls="history-view" aria-label="تاریخچه" title="تاریخچه">
+          <span class="motion-icon motion-history" aria-hidden="true"><span class="icon icon-time"></span></span><span class="sidebar-label">تاریخچه</span>
+        </button>
+        <button type="button" class="nav-button motion-trigger" id="settings-nav" aria-controls="settings-view" aria-label="تنظیمات" title="تنظیمات">
+          <span class="motion-icon motion-settings" aria-hidden="true"><span class="icon icon-settings"></span></span><span class="sidebar-label">تنظیمات</span>
+        </button>
+        <button type="button" class="nav-button motion-trigger" id="updates-nav" aria-controls="updates-view" aria-label="به‌روزرسانی" title="به‌روزرسانی">
+          <span class="nav-update-icon" aria-hidden="true"><span class="motion-icon motion-refresh"><span class="icon icon-refresh"></span></span><span id="update-indicator" hidden></span></span><span class="sidebar-label">به‌روزرسانی</span>
+        </button>
+      </nav>
+      <div class="sidebar-footer">
+        <p class="local-status" title="پردازش روی دستگاه"><span class="icon icon-shield" aria-hidden="true"></span><span class="sidebar-label">پردازش روی دستگاه</span></p>
+        <button type="button" class="sidebar-toggle" id="sidebar-toggle" aria-controls="app-nav" aria-expanded="true" aria-label="جمع کردن منو" title="جمع کردن منو">
+          <span class="icon icon-chevron" aria-hidden="true"></span><span class="sidebar-label" id="sidebar-toggle-label">جمع کردن منو</span>
+        </button>
+      </div>
+    </aside>
+
+    <div class="app-content">
+    <main class="app-main">
+      <div class="alert app-alert" id="app-alert" role="alert" hidden>
+        <div class="alert-text"></div>
+        <button type="button" class="btn icon-only" id="dismiss-alert" aria-label="بستن پیام">
+          <span class="icon icon-cross" aria-hidden="true"></span>
+        </button>
+      </div>
+
+      <section id="settings-view" class="settings-view" aria-labelledby="settings-heading" hidden>
+        <div class="page-heading">
+          <div><h1 id="settings-heading">تنظیمات</h1><p>قالب، کیفیت، نام فایل و محل ذخیره را برای تبدیل‌های بعدی تنظیم کنید.</p></div>
+        </div>
+        <section class="settings-panel" aria-labelledby="settings-title">
+          <div class="panel-heading">
+            <span class="section-icon icon icon-tune" aria-hidden="true"></span>
+            <h2 id="settings-title">تنظیمات خروجی</h2>
+          </div>
+          <fieldset id="settings-controls" disabled>
+            <div class="settings-group">
+              <label class="form-label" for="format">قالب فایل</label>
+              <select class="form-select" id="format" aria-describedby="format-help" data-custom-select data-icon="film">
+                <option value="hls" data-note="پخش آنلاین چندبخشی">HLS</option>
+                <option value="mp4" data-note="سازگار با بیشتر دستگاه‌ها">MP4</option>
+                <option value="webm" data-note="مناسب انتشار در وب">WebM</option>
+              </select>
+              <p class="option-help" id="format-help">یک ZIP شامل فهرست پخش و قطعه‌های HLS</p>
+              <div class="quality-group">
+                <div>
+                  <label class="form-label" for="quality">کیفیت</label>
+                  <select class="form-select" id="quality" data-custom-select>
+                    <option value="high">بالا</option>
+                    <option value="balanced" selected>متعادل</option>
+                    <option value="compact">کم‌حجم</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="form-label" for="resolution">حداکثر وضوح</label>
+                  <select class="form-select" id="resolution" data-custom-select>
+                    <option value="width-1024" data-note="با حفظ نسبت تصویر" selected>عرض ۱۰۲۴ پیکسل</option>
+                    <option value="">وضوح اصلی</option>
+                    <option value="1080">1080p</option>
+                    <option value="720">720p</option>
+                    <option value="480">480p</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-group">
+              <p class="form-label" id="location-label">محل ذخیره</p>
+              <div class="path-option motion-trigger" aria-labelledby="location-label">
+                <span class="motion-icon motion-folder" aria-hidden="true"><span class="icon icon-folder"></span></span>
+                <span class="path-text" id="destination-path" dir="auto">کنار فایل‌های ورودی</span>
+                <button type="button" class="btn icon-only" id="choose-destination" aria-label="انتخاب پوشهٔ خروجی" title="انتخاب پوشهٔ خروجی"><span class="icon icon-edit" aria-hidden="true"></span></button>
+              </div>
+              <div class="location-help">
+                <p class="option-help" id="destination-help">در پوشهٔ <bdi>output_hls</bdi> کنار هر ویدیو</p>
+                <button type="button" class="btn icon-only" id="reset-destination" aria-label="بازنشانی محل ذخیره" title="بازنشانی محل ذخیره" hidden><span class="icon icon-refresh" aria-hidden="true"></span></button>
+              </div>
+            </div>
+
+            <div class="settings-group finglish-group">
+              <div class="form-check form-switch switch-line">
+                <input class="form-check-input" id="finglish" type="checkbox" role="switch" aria-describedby="finglish-help" checked>
+                <label class="form-check-label" for="finglish">نام خروجی به فینگلیش</label>
+              </div>
+              <p class="option-help name-example" id="finglish-help">مثال <bdi>جلسه اول</bdi><span class="icon icon-arrow-left" aria-hidden="true"></span><bdi>session-aval</bdi></p>
+            </div>
+
+            <details class="disclosure advanced-settings" id="hls-settings">
+              <summary class="disclosure-trigger">
+                <span class="icon icon-settings disclosure-leading" aria-hidden="true"></span>
+                <span>تنظیمات HLS</span>
+                <span class="icon icon-chevron disclosure-arrow" aria-hidden="true"></span>
+              </summary>
+              <div class="disclosure-body"><div class="advanced-fields">
+                  <div class="segment-line">
+                    <label class="form-label" for="segment-seconds">مدت هر بخش (ثانیه)</label>
+                    <div class="segment-stepper" dir="ltr">
+                      <button type="button" id="segment-minus" class="stepper-button" aria-label="کاهش مدت قطعه"><span class="icon icon-minus" aria-hidden="true"></span></button>
+                      <input class="form-control segment-input" type="number" id="segment-seconds" min="2" max="30" step="1" value="10" inputmode="numeric">
+                      <button type="button" id="segment-plus" class="stepper-button" aria-label="افزایش مدت قطعه"><span class="icon icon-add" aria-hidden="true"></span></button>
+                    </div>
+                  </div>
+                  <div class="form-check form-switch switch-line">
+                    <input class="form-check-input" id="encrypt" type="checkbox" role="switch" aria-describedby="encrypt-help" checked>
+                    <label class="form-check-label" for="encrypt">رمزگذاری AES-128</label>
+                  </div>
+                  <p class="option-help" id="encrypt-help">کلید با نام خروجی و پسوند <bdi>.key</bdi> کنار <bdi>playlist.m3u8</bdi> در ZIP ذخیره می‌شود.</p>
+              </div></div>
+            </details>
+          </fieldset>
+        </section>
+      </section>
+
+      <section id="conversion-view" aria-labelledby="conversion-title">
+        <div class="page-heading">
+          <div><h1 id="conversion-title">تبدیل ویدیو</h1><p>برای هر ویدیو یک فایل ZIP ساخته می‌شود.</p></div>
+          <button type="button" id="add-files" class="btn btn-outline-studio action-icon" aria-label="افزودن فایل" title="افزودن فایل" disabled>
+            <span class="icon icon-add" aria-hidden="true"></span>
+          </button>
+        </div>
+        <section class="queue-workspace" aria-labelledby="queue-title">
+          <div id="drop-zone" class="drop-zone motion-trigger">
+            <div class="drop-content">
+              <div class="drop-glyph" aria-hidden="true"><span class="motion-icon motion-film"><span class="icon icon-clapper"></span></span></div>
+              <div class="drop-text">
+                <h2>ویدیوها را اینجا رها کنید</h2>
+                <p>می‌توانید چند فایل را هم‌زمان اضافه کنید.</p>
+              </div>
+              <button type="button" class="btn btn-outline-studio action-icon choose-video" id="drop-choose" aria-label="انتخاب ویدیو" title="انتخاب ویدیو" disabled>
+                <span class="icon icon-upload" aria-hidden="true"></span>
+              </button>
+            </div>
+          </div>
+
+          <div class="queue-panel">
+            <div class="panel-heading queue-heading">
+              <div class="queue-title-group">
+                <span class="section-icon icon icon-queue" aria-hidden="true"></span>
+                <h2 id="queue-title">صف تبدیل</h2>
+                <span id="file-count" class="count-pill" dir="ltr">۰</span>
+              </div>
+              <button type="button" class="btn icon-only clear-queue" id="clear-files" aria-label="پاک‌کردن صف" title="پاک‌کردن صف" disabled><span class="icon icon-trash" aria-hidden="true"></span></button>
+            </div>
+            <div class="empty-queue" id="empty-queue">
+              <span class="icon icon-file" aria-hidden="true"></span>
+              <p>صف تبدیل خالی است</p>
+              <span>ویدیوها را اضافه کنید تا نام و حجم تقریبی خروجی را ببینید.</span>
+            </div>
+            <div class="queue-scroll" id="queue-scroll" hidden>
+              <table class="queue-table" aria-labelledby="queue-title">
+                <colgroup><col class="col-file"><col class="col-output"><col class="col-size"><col class="col-status"><col class="col-actions"></colgroup>
+                <thead><tr><th scope="col">فایل ورودی</th><th scope="col">نام خروجی</th><th scope="col" title="بازهٔ تخمینی با تنظیمات فعلی">حجم تقریبی</th><th scope="col">وضعیت</th><th scope="col" class="queue-action-heading">عملیات</th></tr></thead>
+                <tbody id="queue-list"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <section id="history-view" class="history-view" aria-labelledby="history-title" hidden>
+        <div class="page-heading history-heading">
+          <div>
+            <h1 id="history-title">تاریخچهٔ تبدیل</h1>
+            <p>نتیجهٔ تبدیل‌ها و مسیر فایل‌های خروجی را اینجا پیدا کنید.</p>
+          </div>
+          <div class="history-tools">
+            <p id="history-count" class="history-count" aria-live="polite" hidden></p>
+            <button type="button" class="btn btn-stop action-icon" id="history-clear" aria-label="پاک کردن کل تاریخچه" title="پاک کردن کل تاریخچه" hidden><span class="icon icon-trash" aria-hidden="true"></span></button>
+          </div>
+        </div>
+        <div id="history-empty" class="history-empty" hidden>
+          <span class="history-empty-icon" aria-hidden="true"><span class="icon icon-time"></span></span>
+          <h2 id="history-state-title">هنوز تبدیلی ثبت نشده است</h2>
+          <p id="history-state-detail">پس از تبدیل اولین ویدیو، نتیجه در اینجا نمایش داده می‌شود.</p>
+          <button type="button" class="btn btn-outline-studio action-icon" id="history-convert" aria-label="رفتن به تبدیل ویدیو" title="رفتن به تبدیل ویدیو"><span class="icon icon-film" aria-hidden="true"></span></button>
+        </div>
+        <div id="history-list" class="history-list" aria-busy="false"></div>
+      </section>
+
+      <section id="updates-view" class="updates-view" aria-labelledby="updates-title" hidden>
+        <div class="page-heading"><h1 id="updates-title">به‌روزرسانی برنامه</h1></div>
+        <div class="settings-panel">
+          <div class="panel-heading update-heading">
+            <span class="update-glyph icon icon-refresh" aria-hidden="true"></span>
+            <div><h2>نسخهٔ نصب‌شده</h2><bdi id="installed-version" dir="ltr"></bdi></div>
+            <button type="button" class="btn btn-outline-studio action-icon" id="check-update-now" aria-label="بررسی نسخهٔ جدید" title="بررسی نسخهٔ جدید"><span class="icon icon-refresh" aria-hidden="true"></span></button>
+          </div>
+          <div class="dialog-body update-body">
+            <p id="update-message" class="update-message" role="status"></p>
+            <progress id="update-progress" max="100" aria-label="پیشرفت دانلود نسخهٔ جدید" hidden></progress>
+            <p id="update-error" class="update-error" hidden></p>
+          </div>
+          <div class="update-source">
+            <span class="icon icon-shield" aria-hidden="true"></span>
+            <div>
+              <p>منبع به‌روزرسانی <bdi>GitHub Releases</bdi></p>
+              <bdi id="update-repository" dir="ltr" class="update-repository"></bdi>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="action-bar" id="action-bar">
+      <div class="batch-display">
+        <div class="batch-indicator" id="batch-indicator" aria-hidden="true"><span class="icon icon-check"></span></div>
+        <div class="batch-text">
+          <span id="status-title" aria-live="polite">آماده برای افزودن ویدیو</span>
+          <small id="status-caption">برای شروع، یک ویدیو به صف اضافه کنید.</small>
+        </div>
+        <progress id="batch-progress" max="100" value="0" aria-label="پیشرفت صف تبدیل" hidden></progress>
+      </div>
+      <div class="batch-actions">
+        <button type="button" class="btn btn-neutral action-icon" id="open-output" aria-label="باز کردن پوشهٔ خروجی" title="باز کردن پوشهٔ خروجی" hidden>
+          <span class="icon icon-folder" aria-hidden="true"></span>
+        </button>
+        <button type="button" class="btn btn-stop action-icon" id="cancel-batch" aria-label="توقف تبدیل" title="توقف تبدیل" hidden><span class="icon icon-stop" aria-hidden="true"></span></button>
+        <button type="button" class="btn btn-primary-studio action-icon" id="start-batch" aria-label="شروع تبدیل" title="شروع تبدیل" disabled>
+          <span class="icon icon-play" aria-hidden="true"></span>
+        </button>
+      </div>
+    </footer>
+    </div>
+  </div>
+
+  <dialog class="rename-dialog" id="rename-dialog" aria-labelledby="rename-title">
+    <form id="rename-form" method="dialog">
+      <div class="panel-heading dialog-heading">
+        <h2 id="rename-title">ویرایش نام خروجی</h2>
+        <button type="button" class="btn icon-only" id="close-rename" aria-label="بستن پنجره">
+          <span class="icon icon-cross" aria-hidden="true"></span>
+        </button>
+      </div>
+      <div class="dialog-body">
+        <p class="option-help">فایل اصلی <bdi id="rename-original"></bdi></p>
+        <label class="form-label" for="rename-input">نام جدید</label>
+        <input class="form-control" id="rename-input" type="text" maxlength="180" aria-describedby="rename-help" dir="auto" autocomplete="off" autofocus>
+        <p class="option-help" id="rename-help">نام را بدون پسوند وارد کنید. کادر خالی، نام خودکار را برمی‌گرداند.</p>
+      </div>
+      <div class="dialog-actions">
+        <button type="submit" class="btn btn-primary-studio action-icon" aria-label="ذخیرهٔ نام" title="ذخیرهٔ نام"><span class="icon icon-check" aria-hidden="true"></span></button>
+        <button type="button" class="btn btn-neutral action-icon" id="reset-rename" aria-label="بازگشت به نام خودکار" title="بازگشت به نام خودکار"><span class="icon icon-refresh" aria-hidden="true"></span></button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="rename-dialog" id="history-delete-dialog" aria-labelledby="history-delete-title">
+    <form method="dialog">
+      <div class="panel-heading dialog-heading"><h2 id="history-delete-title"></h2></div>
+      <div class="dialog-body"><p class="option-help">فقط رکوردهای تاریخچه پاک می‌شوند. فایل‌های خروجی در پوشهٔ ذخیره باقی می‌مانند.</p></div>
+      <div class="dialog-actions">
+        <button class="btn btn-stop action-icon" value="delete" aria-label="تأیید حذف" title="تأیید حذف"><span class="icon icon-trash" aria-hidden="true"></span></button>
+        <button class="btn btn-neutral action-icon" value="cancel" aria-label="انصراف" title="انصراف" autofocus><span class="icon icon-cross" aria-hidden="true"></span></button>
+      </div>
+    </form>
+  </dialog>
+
+  <template id="queue-template">
+    <tr class="queue-row">
+      <td class="queue-source">
+        <div class="queue-file">
+          <span class="file-glyph" aria-hidden="true"><span class="icon icon-film"></span></span>
+          <div class="file-labels">
+            <bdi class="file-name"></bdi>
+            <div class="file-meta">
+              <span class="meta-duration"><span class="icon icon-time" aria-hidden="true"></span><bdi></bdi></span>
+              <bdi class="meta-size"></bdi>
+            </div>
+          </div>
+        </div>
+        <details class="disclosure queue-error" hidden>
+          <summary class="disclosure-trigger"><span class="icon icon-info" aria-hidden="true"></span><span>جزئیات خطا</span><span class="icon icon-chevron disclosure-arrow" aria-hidden="true"></span></summary>
+          <div class="disclosure-body"><p class="queue-error-text" dir="auto"></p></div>
+        </details>
+      </td>
+      <td class="queue-output"><span class="queue-small-label">خروجی</span><bdi class="output-name"></bdi></td>
+      <td class="queue-size"><span class="queue-small-label">حجم تقریبی</span><span class="size-band"><bdi class="size-number"></bdi><span class="size-unit"></span></span></td>
+      <td class="queue-state">
+        <span class="queue-status"></span>
+        <progress class="queue-progress" max="100" value="0" aria-label="پیشرفت تبدیل" hidden></progress>
+      </td>
+      <td class="queue-actions"><div class="queue-tools">
+        <button type="button" class="btn icon-only rename-file" aria-label="ویرایش نام خروجی" title="ویرایش نام خروجی"><span class="icon icon-edit" aria-hidden="true"></span></button>
+        <button type="button" class="btn icon-only play-output" aria-label="پخش خروجی" title="پخش خروجی" hidden>
+          <span class="icon icon-play" aria-hidden="true"></span>
+        </button>
+        <button type="button" class="btn icon-only show-file" aria-label="نمایش فایل در پوشه" title="نمایش فایل در پوشه" hidden>
+          <span class="icon icon-folder" aria-hidden="true"></span>
+        </button>
+        <button type="button" class="btn icon-only remove-file" aria-label="حذف فایل از صف" title="حذف فایل از صف">
+          <span class="icon icon-cross" aria-hidden="true"></span>
+        </button>
+      </div></td>
+    </tr>
+  </template>
+
+  <template id="history-template">
+    <li class="history-row">
+      <div class="history-file">
+        <span class="file-glyph" aria-hidden="true"><span class="icon icon-film"></span></span>
+        <div class="history-file-labels">
+          <bdi class="file-name"></bdi>
+          <bdi class="history-output" hidden></bdi>
+        </div>
+      </div>
+      <div class="history-meta"></div>
+      <div class="history-stamp"><span class="queue-status"></span><time></time></div>
+      <div class="history-actions">
+        <button type="button" class="btn icon-only history-play" aria-label="پخش خروجی" title="پخش خروجی" hidden>
+          <span class="icon icon-play" aria-hidden="true"></span>
+        </button>
+        <button type="button" class="btn icon-only history-show" aria-label="نمایش فایل خروجی" title="نمایش فایل خروجی" hidden>
+          <span class="icon icon-folder" aria-hidden="true"></span>
+        </button>
+        <button type="button" class="btn icon-only history-remove" aria-label="حذف از تاریخچه" title="حذف از تاریخچه">
+          <span class="icon icon-trash" aria-hidden="true"></span>
+        </button>
+      </div>
+      <details class="disclosure queue-error history-error" hidden>
+        <summary class="disclosure-trigger"><span>جزئیات خطا</span><span class="icon icon-chevron disclosure-arrow" aria-hidden="true"></span></summary>
+        <div class="disclosure-body"><p class="queue-error-text" dir="auto"></p></div>
+      </details>
+    </li>
+  </template>
+</body>
+</html>

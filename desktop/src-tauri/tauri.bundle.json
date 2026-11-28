@@ -1,0 +1,12 @@
+{
+  "bundle": {
+    "createUpdaterArtifacts": true,
+    "resources": {
+      "ffmpeg/ffmpeg.exe": "ffmpeg/ffmpeg.exe",
+      "ffmpeg/ffprobe.exe": "ffmpeg/ffprobe.exe",
+      "ffmpeg/LICENSE": "ffmpeg/LICENSE",
+      "ffmpeg/README.txt": "ffmpeg/README.txt",
+      "ffmpeg/SOURCE.txt": "ffmpeg/SOURCE.txt"
+    }
+  }
+}
